@@ -37,11 +37,16 @@ async def _request(method: str, path: str, **kwargs) -> dict | None:
 
 async def upload_video(file_path: str, title: str,
                        playlist_id: str | None = None,
-                       published_at: str = "") -> dict | None:
+                       published_at: str = "",
+                       thumbnail_url: str = "",
+                       youtube_id: str = "") -> dict | None:
     """Upload video to VideoHost. Returns response dict or None.
 
     published_at: optional ISO date string or YYYYMMDD (yt-dlp upload_date).
     Stored on the Video record and used for chronological playlist sorting.
+    thumbnail_url: optional direct image URL (e.g. YouTube preview URL).
+    youtube_id: optional 11-char YouTube video ID — used to derive thumbnail
+                URL if thumbnail_url is not provided.
     """
     global current_status
     file_size = os.path.getsize(file_path)
@@ -51,8 +56,8 @@ async def upload_video(file_path: str, title: str,
         "task": "upload", "title": title,
         "progress": f"{size_mb:.1f} MB uploading...", "error": "",
     })
-    logger.info("Uploading to VideoHost: %s (%.1f MB) playlist=%s published_at=%s",
-                title, size_mb, playlist_id, published_at or "-")
+    logger.info("Uploading to VideoHost: %s (%.1f MB) playlist=%s published_at=%s yt_id=%s",
+                title, size_mb, playlist_id, published_at or "-", youtube_id or "-")
 
     try:
         with open(file_path, "rb") as f:
@@ -63,6 +68,10 @@ async def upload_video(file_path: str, title: str,
                 form.add_field("playlistId", playlist_id)
             if published_at:
                 form.add_field("publishedAt", published_at)
+            if thumbnail_url:
+                form.add_field("thumbnailUrl", thumbnail_url)
+            if youtube_id:
+                form.add_field("youtubeId", youtube_id)
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -85,6 +94,37 @@ async def upload_video(file_path: str, title: str,
         logger.error("Upload error: %s", e)
         current_status["error"] = str(e)
         return None
+
+
+async def video_exists(videohost_id: str) -> bool:
+    """Check whether a previously uploaded video still exists on VideoHost.
+
+    Used by the bot to detect when a video has been deleted on VideoHost
+    (e.g. by an admin via the UI) so it can be re-uploaded instead of
+    silently skipped due to the local processed_videos cache.
+    """
+    if not videohost_id:
+        return False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{VIDEOHOST_URL}/api/bot/videos/{videohost_id}",
+                headers=_headers(),
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 200:
+                    return True
+                if resp.status == 404:
+                    return False
+                # Auth or other error — be conservative, assume exists
+                # so we don't accidentally re-upload
+                logger.warning("video_exists check returned %d for %s — assuming exists",
+                               resp.status, videohost_id)
+                return True
+    except Exception as e:
+        logger.warning("video_exists check failed for %s: %s — assuming exists",
+                       videohost_id, e)
+        return True
 
 
 async def sort_playlist(playlist_id: str) -> bool:

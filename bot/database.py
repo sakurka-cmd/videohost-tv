@@ -183,6 +183,14 @@ async def is_video_processed(youtube_id: str) -> bool:
     return await cur.fetchone() is not None
 
 
+async def get_processed_video(youtube_id: str) -> dict | None:
+    """Return the full processed_videos row for a given YouTube ID, or None."""
+    db = get_db()
+    cur = await db.execute("SELECT * FROM processed_videos WHERE youtube_id=?", (youtube_id,))
+    row = await cur.fetchone()
+    return dict(row) if row else None
+
+
 async def mark_video_processed(youtube_id: str, sub_id: int | None,
                                 title: str, quality: str, videohost_id: str):
     db = get_db()
@@ -190,6 +198,17 @@ async def mark_video_processed(youtube_id: str, sub_id: int | None,
         "INSERT OR IGNORE INTO processed_videos (youtube_id, subscription_id, title, quality, videohost_id) VALUES (?,?,?,?,?)",
         (youtube_id, sub_id, title, quality, videohost_id),
     )
+    await db.commit()
+
+
+async def unmark_video_processed(youtube_id: str):
+    """Remove the processed_videos record for a given YouTube ID.
+
+    Called when the bot discovers that a previously uploaded video has been
+    deleted on VideoHost — allows re-upload on the next /dl or scheduler run.
+    """
+    db = get_db()
+    await db.execute("DELETE FROM processed_videos WHERE youtube_id=?", (youtube_id,))
     await db.commit()
 
 

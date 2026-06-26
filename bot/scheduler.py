@@ -8,7 +8,7 @@ import feedparser
 
 from bot import database as db
 from bot.downloader import extract_video_id, download_video, cleanup_file, current_status
-from bot.uploader import upload_video, sort_playlist
+from bot.uploader import upload_video, sort_playlist, video_exists
 from bot.config import CHECK_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,18 @@ async def process_subscription(sub: dict) -> int:
         if not yt_id:
             continue
 
-        if await db.is_video_processed(yt_id):
+        # Skip if already processed — but verify the video still exists on
+        # VideoHost. If it was deleted there, drop the local cache so we
+        # can re-upload on this scheduler run.
+        existing = await db.get_processed_video(yt_id)
+        if existing:
+            vh_id_old = existing.get("videohost_id", "") or ""
+            if vh_id_old and not await video_exists(vh_id_old):
+                logger.info("Video %s (%s) was deleted on VideoHost — re-uploading",
+                            yt_id, vh_id_old)
+                await db.unmark_video_processed(yt_id)
+                existing = None
+        if existing:
             continue
 
         title = entry.get("title", "Untitled")
@@ -83,7 +94,15 @@ async def process_subscription(sub: dict) -> int:
                 await db.mark_video_processed(yt_id, sub_id, title, quality, "")
             continue
 
-        result = await upload_video(file_path, title, playlist_id or None, published_iso)
+        # YouTube thumbnail URL — always available for public videos
+        yt_thumb = f"https://img.youtube.com/vi/{yt_id}/hqdefault.jpg" if yt_id else ""
+
+        result = await upload_video(
+            file_path, title, playlist_id or None,
+            published_at=published_iso,
+            thumbnail_url=yt_thumb,
+            youtube_id=yt_id,
+        )
         cleanup_file(file_path)
 
         if result:

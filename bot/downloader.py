@@ -64,7 +64,13 @@ async def get_video_info(url: str) -> dict | None:
             "id": info.get("id", ""),
             "title": info.get("title", ""),
             "duration": info.get("duration", 0),
+            # channel = display name (e.g. "Асафьев. Жизнь")
             "channel": info.get("channel", ""),
+            # uploader = handle without @ (e.g. "AsafevLife"), or display name
+            # when channel has no handle. Prefer uploader for playlist naming
+            # because it's stable across locales and matches the URL.
+            "uploader": info.get("uploader", "") or info.get("channel", ""),
+            "uploader_url": info.get("uploader_url", "") or info.get("channel_url", ""),
             "description": info.get("description", "")[:500],
             "thumbnail": info.get("thumbnail", ""),
             "filesize_approx": info.get("filesize_approx", 0),
