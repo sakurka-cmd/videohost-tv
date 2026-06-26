@@ -54,8 +54,9 @@ def subscriptions_keyboard(subscriptions: list[dict]) -> InlineKeyboardMarkup:
 
 
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
+    return ReplyKeyboardMarkup(
         [KeyboardButton("/subscribe"), KeyboardButton("/dl")],
         [KeyboardButton("/list"), KeyboardButton("/playlists")],
         [KeyboardButton("/status"), KeyboardButton("/help")],
-    ])
+        resize_keyboard=True,
+    )
