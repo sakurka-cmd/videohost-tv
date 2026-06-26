@@ -68,14 +68,18 @@ def register_handlers(bot: AsyncTeleBot):
     # ── /playlists ──────────────────────────────────────────
     @bot.message_handler(commands=["playlists"])
     async def cmd_playlists(msg: Message):
-        playlists = await list_playlists()
-        if not playlists:
-            await bot.reply_to(msg, "В VideoHost нет плейлистов.\nСоздайте через веб-интерфейс.")
-            return
-        lines = [f"Плейлисты VideoHost ({len(playlists)}):"]
-        for p in playlists:
-            lines.append(f"  {p['name']} (id: {p['id']})")
-        await bot.reply_to(msg, "\n".join(lines))
+        try:
+            playlists = await list_playlists()
+            if not playlists:
+                await bot.reply_to(msg, "В VideoHost нет плейлистов.\nСоздайте через веб-интерфейс.")
+                return
+            lines = [f"Плейлисты VideoHost ({len(playlists)}):"]
+            for p in playlists:
+                lines.append(f"  {p['name']} (id: {p['id']})")
+            await bot.reply_to(msg, "\n".join(lines))
+        except Exception as e:
+            logger.exception("cmd_playlists error")
+            await bot.reply_to(msg, f"Ошибка получения плейлистов: {e}")
 
     # ── /status ─────────────────────────────────────────────
     @bot.message_handler(commands=["status"])
@@ -90,7 +94,7 @@ def register_handlers(bot: AsyncTeleBot):
             if s["progress"]:
                 text += f"{s['progress']}\n"
             if s["error"]:
-                text += f"{s['error']}\n"
+                text += f"Ошибка: {s['error']}\n"
         else:
             text = "Нет активных задач."
         await bot.reply_to(msg, text)
@@ -191,203 +195,236 @@ def register_handlers(bot: AsyncTeleBot):
     # ── Callback query handler ──────────────────────────────
     @bot.callback_query_handler(func=lambda call: True)
     async def handle_callback(call: CallbackQuery):
-        uid = call.from_user.id
-        data_str = call.data
-        state, data = await db.get_fsm_state(uid)
+        try:
+            uid = call.from_user.id
+            data_str = call.data
+            state, data = await db.get_fsm_state(uid)
+            logger.info("Callback from %d, state=%s, data=%s", uid, state, data_str)
 
-        # ── Cancel ──
-        if data_str == "cancel":
-            await db.clear_fsm_state(uid)
-            await bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-            await bot.answer_callback_query(call.id, "Отменено")
-            return
-
-        # ── Quality selection (shared for subscribe and dl) ──
-        if data_str.startswith("q:"):
-            quality = data_str.split(":")[1]
-            if quality not in QUALITY_LABELS:
-                await bot.answer_callback_query(call.id, "Неизвестное качество")
+            # ── Cancel ──
+            if data_str == "cancel":
+                await db.clear_fsm_state(uid)
+                await bot.edit_message_reply_markup(
+                    call.message.chat.id, call.message.message_id, reply_markup=None
+                )
+                await bot.answer_callback_query(call.id, "Отменено")
                 return
-            data["quality"] = quality
-            await db.save_fsm_state(uid, state, data)
 
-            if state == States.SUB_ASK_QUALITY:
-                await db.save_fsm_state(uid, States.SUB_ASK_PLAYLIST, data)
-                playlists = await list_playlists()
-                kb = playlists_keyboard(playlists)
-                await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id,
-                    f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист:",
-                    reply_markup=kb,
-                )
-            elif state == States.DL_ASK_QUALITY:
-                await db.save_fsm_state(uid, States.DL_ASK_PLAYLIST, data)
-                playlists = await list_playlists()
-                kb = playlists_keyboard(playlists, with_skip=True)
-                await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id,
-                    f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист (или пропустите):",
-                    reply_markup=kb,
-                )
-            else:
-                await bot.answer_callback_query(call.id, "Неожиданное состояние")
-            return
-
-        # ── Playlist selection ──
-        if data_str.startswith("pl:"):
-            playlist_id = data_str.split(":")[1]
-
-            if state == States.SUB_ASK_PLAYLIST:
-                if playlist_id == "skip":
-                    await bot.answer_callback_query(call.id, "Выберите плейлист!")
+            # ── Quality selection (shared for subscribe and dl) ──
+            if data_str.startswith("q:"):
+                quality = data_str.split(":")[1]
+                if quality not in QUALITY_LABELS:
+                    await bot.answer_callback_query(call.id, "Неизвестное качество")
                     return
-                data["playlist_id"] = playlist_id
-                await db.save_fsm_state(uid, States.SUB_CONFIRM, data)
-                await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id,
-                    f"Подтвердите подписку:\n\n"
-                    f"Канал: {data.get('channel_title', '?')}\n"
-                    f"Плейлист: {playlist_id}\n"
-                    f"Качество: {QUALITY_LABELS.get(data.get('quality', '720'), '?')}\n\n"
-                    f"Новые видео будут автоматически загружаться.",
-                    reply_markup=yes_no_keyboard(),
-                )
+                data["quality"] = quality
+                await db.save_fsm_state(uid, state, data)
 
-            elif state == States.DL_ASK_PLAYLIST:
-                data["playlist_id"] = "" if playlist_id == "skip" else playlist_id
-                # Start download immediately
-                await db.clear_fsm_state(uid)
-                await bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-                pl_info = f"\nПлейлист: {playlist_id}" if playlist_id != "skip" else "\nБез плейлиста"
-                await bot.send_message(
-                    call.message.chat.id,
-                    f"Начинаю загрузку:\n"
-                    f"{data.get('title', '?')}\n"
-                    f"Качество: {QUALITY_LABELS.get(data.get('quality', '720'), '?')}{pl_info}",
-                )
-                asyncio.create_task(_process_oneoff(uid, data))
-            return
-
-        # ── Subscribe confirmation ──
-        if data_str == "yes" and state == States.SUB_CONFIRM:
-            sub_id = await db.add_subscription(
-                data["channel_id"],
-                data["channel_title"],
-                data["playlist_id"],
-                data.get("quality", DEFAULT_QUALITY),
-            )
-            await db.clear_fsm_state(uid)
-            await bot.edit_message_text(
-                call.message.chat.id, call.message.message_id,
-                f"Подписка оформлена! (#{sub_id})\n"
-                f"Канал: {data['channel_title']}",
-            )
-            await bot.answer_callback_query(call.id, "Готово!")
-            return
-
-        if data_str == "no" and state == States.SUB_CONFIRM:
-            await db.clear_fsm_state(uid)
-            await bot.edit_message_text(
-                call.message.chat.id, call.message.message_id,
-                "Отменено.",
-            )
-            return
-
-        # ── Unsubscribe selection ──
-        if data_str.startswith("sub:") and state == States.UNSUB_SELECT:
-            sub_id = int(data_str.split(":")[1])
-            sub = await db.get_subscription(sub_id)
-            if sub:
-                await db.delete_subscription(sub_id)
-                await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id,
-                    f"Удалена подписка: {sub.get('channel_title', sub['channel_id'])}",
-                )
-            await bot.answer_callback_query(call.id, "Удалено")
-            return
-
-        # ── Quality change selection ──
-        if data_str.startswith("sub:") and state == States.QUALITY_SELECT:
-            sub_id = int(data_str.split(":")[1])
-            data["sub_id"] = sub_id
-            await db.save_fsm_state(uid, States.QUALITY_VALUE, data)
-            sub = await db.get_subscription(sub_id)
-            cur_q = sub.get("quality", "720") if sub else "720"
-            await bot.edit_message_text(
-                call.message.chat.id, call.message.message_id,
-                f"Текущее качество: {QUALITY_LABELS.get(cur_q, cur_q)}\nВыберите новое:",
-                reply_markup=quality_keyboard(),
-            )
-            return
-
-        if data_str.startswith("q:") and state == States.QUALITY_VALUE:
-            quality = data_str.split(":")[1]
-            if quality not in QUALITY_LABELS:
-                await bot.answer_callback_query(call.id, "?")
+                if state == States.SUB_ASK_QUALITY:
+                    await db.save_fsm_state(uid, States.SUB_ASK_PLAYLIST, data)
+                    playlists = await list_playlists()
+                    kb = playlists_keyboard(playlists)
+                    await bot.edit_message_text(
+                        call.message.chat.id, call.message.message_id,
+                        f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист:",
+                        reply_markup=kb,
+                    )
+                elif state == States.DL_ASK_QUALITY:
+                    await db.save_fsm_state(uid, States.DL_ASK_PLAYLIST, data)
+                    playlists = await list_playlists()
+                    kb = playlists_keyboard(playlists, with_skip=True)
+                    await bot.edit_message_text(
+                        call.message.chat.id, call.message.message_id,
+                        f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист (или пропустите):",
+                        reply_markup=kb,
+                    )
+                else:
+                    await bot.answer_callback_query(call.id, "Неожиданное состояние")
                 return
-            sub_id = data.get("sub_id")
-            if sub_id:
-                await db.update_subscription_quality(sub_id, quality)
+
+            # ── Playlist selection ──
+            if data_str.startswith("pl:"):
+                playlist_id = data_str.split(":")[1]
+
+                if state == States.SUB_ASK_PLAYLIST:
+                    if playlist_id == "skip":
+                        await bot.answer_callback_query(call.id, "Выберите плейлист!")
+                        return
+                    data["playlist_id"] = playlist_id
+                    await db.save_fsm_state(uid, States.SUB_CONFIRM, data)
+                    await bot.edit_message_text(
+                        call.message.chat.id, call.message.message_id,
+                        f"Подтвердите подписку:\n\n"
+                        f"Канал: {data.get('channel_title', '?')}\n"
+                        f"Плейлист: {playlist_id}\n"
+                        f"Качество: {QUALITY_LABELS.get(data.get('quality', '720'), '?')}\n\n"
+                        f"Новые видео будут автоматически загружаться.",
+                        reply_markup=yes_no_keyboard(),
+                    )
+
+                elif state == States.DL_ASK_PLAYLIST:
+                    data["playlist_id"] = "" if playlist_id == "skip" else playlist_id
+                    await db.clear_fsm_state(uid)
+                    await bot.edit_message_reply_markup(
+                        call.message.chat.id, call.message.message_id, reply_markup=None
+                    )
+                    pl_info = (
+                        f"\nПлейлист: {playlist_id}"
+                        if playlist_id != "skip"
+                        else "\nБез плейлиста"
+                    )
+                    await bot.send_message(
+                        call.message.chat.id,
+                        f"Начинаю загрузку:\n"
+                        f"{data.get('title', '?')}\n"
+                        f"Качество: {QUALITY_LABELS.get(data.get('quality', '720'), '?')}{pl_info}",
+                    )
+                    asyncio.create_task(_process_oneoff(uid, data))
+                return
+
+            # ── Subscribe confirmation ──
+            if data_str == "yes" and state == States.SUB_CONFIRM:
+                sub_id = await db.add_subscription(
+                    data["channel_id"],
+                    data["channel_title"],
+                    data["playlist_id"],
+                    data.get("quality", DEFAULT_QUALITY),
+                )
                 await db.clear_fsm_state(uid)
                 await bot.edit_message_text(
                     call.message.chat.id, call.message.message_id,
-                    f"Качество изменено на {QUALITY_LABELS[quality]}",
+                    f"Подписка оформлена! (#{sub_id})\nКанал: {data['channel_title']}",
                 )
-            await bot.answer_callback_query(call.id, "Готово!")
-            return
+                await bot.answer_callback_query(call.id, "Готово!")
+                return
 
-        await bot.answer_callback_query(call.id, "")
+            if data_str == "no" and state == States.SUB_CONFIRM:
+                await db.clear_fsm_state(uid)
+                await bot.edit_message_text(
+                    call.message.chat.id, call.message.message_id, "Отменено.",
+                )
+                return
+
+            # ── Unsubscribe selection ──
+            if data_str.startswith("sub:") and state == States.UNSUB_SELECT:
+                sub_id = int(data_str.split(":")[1])
+                sub = await db.get_subscription(sub_id)
+                if sub:
+                    await db.delete_subscription(sub_id)
+                    await bot.edit_message_text(
+                        call.message.chat.id, call.message.message_id,
+                        f"Удалена подписка: {sub.get('channel_title', sub['channel_id'])}",
+                    )
+                await bot.answer_callback_query(call.id, "Удалено")
+                return
+
+            # ── Quality change selection ──
+            if data_str.startswith("sub:") and state == States.QUALITY_SELECT:
+                sub_id = int(data_str.split(":")[1])
+                data["sub_id"] = sub_id
+                await db.save_fsm_state(uid, States.QUALITY_VALUE, data)
+                sub = await db.get_subscription(sub_id)
+                cur_q = sub.get("quality", "720") if sub else "720"
+                await bot.edit_message_text(
+                    call.message.chat.id, call.message.message_id,
+                    f"Текущее качество: {QUALITY_LABELS.get(cur_q, cur_q)}\nВыберите новое:",
+                    reply_markup=quality_keyboard(),
+                )
+                return
+
+            if data_str.startswith("q:") and state == States.QUALITY_VALUE:
+                quality = data_str.split(":")[1]
+                if quality not in QUALITY_LABELS:
+                    await bot.answer_callback_query(call.id, "?")
+                    return
+                sub_id = data.get("sub_id")
+                if sub_id:
+                    await db.update_subscription_quality(sub_id, quality)
+                    await db.clear_fsm_state(uid)
+                    await bot.edit_message_text(
+                        call.message.chat.id, call.message.message_id,
+                        f"Качество изменено на {QUALITY_LABELS[quality]}",
+                    )
+                await bot.answer_callback_query(call.id, "Готово!")
+                return
+
+            await bot.answer_callback_query(call.id, "")
+
+        except Exception as e:
+            logger.exception("handle_callback error: %s", e)
+            try:
+                await bot.answer_callback_query(call.id, f"Ошибка: {e}")
+            except Exception:
+                pass
 
     # ═══════════════════════════════════════════════════════
     #  Text handler (MUST be last — catch-all for FSM states)
     # ═══════════════════════════════════════════════════════
     @bot.message_handler(func=lambda m: True, content_types=["text"])
     async def handle_text(msg: Message):
-        state, data = await db.get_fsm_state(msg.from_user.id)
-        text = msg.text.strip()
-        uid = msg.from_user.id
+        try:
+            state, data = await db.get_fsm_state(msg.from_user.id)
+            text = msg.text.strip()
+            uid = msg.from_user.id
+            logger.info("Text from %d, state=%s, text=%s", uid, state, text[:100])
 
-        if state == States.SUB_ASK_URL:
-            ch_id = extract_channel_id(text)
-            if not ch_id:
-                await bot.reply_to(msg, "Не удалось распознать канал. Попробуйте другую ссылку.")
-                return
-            info = await get_channel_info(text)
-            title = info["title"] if info else ch_id
-            data["channel_id"] = ch_id
-            data["channel_title"] = title
-            data["original_url"] = text
-            await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
-            await bot.reply_to(
-                msg, f"Канал: {title}\nВыберите качество:",
-                reply_markup=quality_keyboard(),
-            )
+            if state == States.SUB_ASK_URL:
+                ch_id = extract_channel_id(text)
+                if not ch_id:
+                    await bot.reply_to(msg, "Не удалось распознать канал. Попробуйте другую ссылку.")
+                    return
+                await bot.reply_to(msg, "Получаю информацию о канале...")
+                try:
+                    info = await get_channel_info(text)
+                except Exception as e:
+                    logger.error("get_channel_info error: %s", e)
+                    info = None
+                title = info["title"] if info else ch_id
+                data["channel_id"] = ch_id
+                data["channel_title"] = title
+                data["original_url"] = text
+                await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
+                await bot.reply_to(
+                    msg, f"Канал: {title}\nВыберите качество:",
+                    reply_markup=quality_keyboard(),
+                )
 
-        elif state == States.DL_ASK_URL:
-            yt_id = extract_video_id(text)
-            if not yt_id:
-                await bot.reply_to(msg, "Не удалось распознать ссылку на видео.")
-                return
-            info = await get_video_info(text)
-            title = info["title"] if info else yt_id
-            data["url"] = text
-            data["youtube_id"] = yt_id
-            data["title"] = title
-            await db.save_fsm_state(uid, States.DL_ASK_QUALITY, data)
-            await bot.reply_to(
-                msg, f"Видео: {title}\nВыберите качество:",
-                reply_markup=quality_keyboard(),
-            )
+            elif state == States.DL_ASK_URL:
+                yt_id = extract_video_id(text)
+                if not yt_id:
+                    await bot.reply_to(msg, "Не удалось распознать ссылку на видео.")
+                    return
+                await bot.reply_to(msg, "Получаю информацию о видео...")
+                try:
+                    info = await get_video_info(text)
+                except Exception as e:
+                    logger.error("get_video_info error: %s", e)
+                    info = None
+                title = info["title"] if info else yt_id
+                data["url"] = text
+                data["youtube_id"] = yt_id
+                data["title"] = title
+                await db.save_fsm_state(uid, States.DL_ASK_QUALITY, data)
+                await bot.reply_to(
+                    msg, f"Видео: {title}\nВыберите качество:",
+                    reply_markup=quality_keyboard(),
+                )
 
-        elif state == States.PLAYLIST_ASK_NAME:
-            data["new_playlist_name"] = text
-            await db.save_fsm_state(uid, state, data)
-            await bot.reply_to(
-                msg,
-                f"Плейлист \"{text}\" будет создан через веб-интерфейс.\n"
-                f"Пожалуйста, создайте плейлист \"{text}\" в VideoHost и вернитесь.",
-                reply_markup=cancel_keyboard(),
-            )
+            elif state == States.PLAYLIST_ASK_NAME:
+                data["new_playlist_name"] = text
+                await db.save_fsm_state(uid, state, data)
+                await bot.reply_to(
+                    msg,
+                    f"Плейлист \"{text}\" будет создан через веб-интерфейс.\n"
+                    f"Пожалуйста, создайте плейлист \"{text}\" в VideoHost и вернитесь.",
+                    reply_markup=cancel_keyboard(),
+                )
+
+        except Exception as e:
+            logger.exception("handle_text unhandled error: %s", e)
+            try:
+                await bot.reply_to(msg, f"Ошибка: {e}")
+            except Exception:
+                pass
 
     # ── Background task: one-off download ────────────────────────
     async def _process_oneoff(user_id: int, data: dict):
@@ -397,40 +434,37 @@ def register_handlers(bot: AsyncTeleBot):
         quality = data.get("quality", DEFAULT_QUALITY)
         playlist_id = data.get("playlist_id", "")
 
-        if await db.is_video_processed(yt_id):
-            current_status.update({"task": "", "progress": "", "error": ""})
-            try:
+        try:
+            if await db.is_video_processed(yt_id):
+                current_status.update({"task": "", "progress": "", "error": ""})
                 await bot.send_message(user_id, f"Видео уже загружено ранее: {title}")
-            except Exception:
-                pass
-            return
+                return
 
-        file_path = await download_video(url, quality)
-        if not file_path or file_path == "TOO_LARGE":
-            err_msg = "Файл слишком большой" if file_path == "TOO_LARGE" else "Ошибка скачивания"
-            try:
+            file_path = await download_video(url, quality)
+            if not file_path or file_path == "TOO_LARGE":
+                err_msg = "Файл слишком большой" if file_path == "TOO_LARGE" else "Ошибка скачивания"
                 await bot.send_message(user_id, f"{err_msg}: {title}")
-            except Exception:
-                pass
-            return
+                return
 
-        result = await upload_video(file_path, title, playlist_id or None)
-        cleanup_file(file_path)
+            result = await upload_video(file_path, title, playlist_id or None)
+            cleanup_file(file_path)
 
-        vh_id = result.get("id", "") if result else ""
-        if vh_id:
-            await db.mark_video_processed(yt_id, None, title, quality, vh_id)
-            try:
-                msg = f"Загружено: {title}"
+            vh_id = result.get("id", "") if result else ""
+            if vh_id:
+                await db.mark_video_processed(yt_id, None, title, quality, vh_id)
+                msg_text = f"Загружено: {title}"
                 if vh_id:
-                    msg += f"\nID: {vh_id}"
-                await bot.send_message(user_id, msg)
-            except Exception:
-                pass
-        else:
-            try:
+                    msg_text += f"\nID: {vh_id}"
+                await bot.send_message(user_id, msg_text)
+            else:
                 await bot.send_message(user_id, f"Ошибка загрузки на сервер: {title}")
+        except Exception as e:
+            logger.exception("_process_oneoff error: %s", e)
+            try:
+                await bot.send_message(user_id, f"Ошибка при загрузке: {e}")
             except Exception:
                 pass
-
-        current_status.update({"task": "", "progress": "", "error": "", "url": "", "title": ""})
+        finally:
+            current_status.update({
+                "task": "", "progress": "", "error": "", "url": "", "title": ""
+            })
