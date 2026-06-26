@@ -113,62 +113,6 @@ def register_handlers(bot: AsyncTeleBot):
             reply_markup=cancel_keyboard(),
         )
 
-    @bot.message_handler(func=lambda m: True, chat_types=["text"])
-    async def handle_text(msg: Message):
-        state, data = await db.get_fsm_state(msg.from_user.id)
-        text = msg.text.strip()
-        uid = msg.from_user.id
-
-        if state == States.SUB_ASK_URL:
-            ch_id = extract_channel_id(text)
-            if not ch_id:
-                await bot.reply_to(msg, "❌ Не удалось распознать канал. Попробуйте другую ссылку.")
-                return
-            info = await get_channel_info(text)
-            title = info["title"] if info else ch_id
-            data["channel_id"] = ch_id
-            data["channel_title"] = title
-            data["original_url"] = text
-            await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
-            await bot.reply_to(
-                msg, f"Канал: {title}\nВыберите качество:",
-                reply_markup=quality_keyboard(),
-            )
-
-        elif state == States.DL_ASK_URL:
-            yt_id = extract_video_id(text)
-            if not yt_id:
-                await bot.reply_to(msg, "❌ Не удалось распознать ссылку на видео.")
-                return
-            info = await get_video_info(text)
-            title = info["title"] if info else yt_id
-            data["url"] = text
-            data["youtube_id"] = yt_id
-            data["title"] = title
-            await db.save_fsm_state(uid, States.DL_ASK_QUALITY, data)
-            await bot.reply_to(
-                msg, f"Видео: {title}\nВыберите качество:",
-                reply_markup=quality_keyboard(),
-            )
-
-        elif state == States.PLAYLIST_ASK_NAME:
-            data["new_playlist_name"] = text
-            await db.save_fsm_state(uid, state, data)
-            # The callback handler will pick this up
-            # For simplicity, create inline button flow here
-            from bot.uploader import upload_video
-            # Actually we need a different approach - just confirm the name
-            await bot.reply_to(
-                msg,
-                f"Плейлист «{text}» будет создан через веб-интерфейс.\n"
-                f"Пожалуйста, создайте плейлист «{text}» в VideoHost и вернитесь.",
-                reply_markup=cancel_keyboard(),
-            )
-
-        else:
-            # Unknown state or no state — ignore
-            pass
-
     # ── Callback query handler ──────────────────────────────
     @bot.callback_query_handler(func=lambda call: True)
     async def handle_callback(call: CallbackQuery):
@@ -442,3 +386,52 @@ async def _process_oneoff(user_id: int, data: dict):
             pass
 
     current_status.update({"task": "", "progress": "", "error": "", "url": "", "title": ""})
+
+    # ── Text handler (MUST be last — catch-all for FSM states) ──
+    @bot.message_handler(func=lambda m: True, chat_types=["text"])
+    async def handle_text(msg: Message):
+        state, data = await db.get_fsm_state(msg.from_user.id)
+        text = msg.text.strip()
+        uid = msg.from_user.id
+
+        if state == States.SUB_ASK_URL:
+            ch_id = extract_channel_id(text)
+            if not ch_id:
+                await bot.reply_to(msg, "❌ Не удалось распознать канал. Попробуйте другую ссылку.")
+                return
+            info = await get_channel_info(text)
+            title = info["title"] if info else ch_id
+            data["channel_id"] = ch_id
+            data["channel_title"] = title
+            data["original_url"] = text
+            await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
+            await bot.reply_to(
+                msg, f"Канал: {title}\nВыберите качество:",
+                reply_markup=quality_keyboard(),
+            )
+
+        elif state == States.DL_ASK_URL:
+            yt_id = extract_video_id(text)
+            if not yt_id:
+                await bot.reply_to(msg, "❌ Не удалось распознать ссылку на видео.")
+                return
+            info = await get_video_info(text)
+            title = info["title"] if info else yt_id
+            data["url"] = text
+            data["youtube_id"] = yt_id
+            data["title"] = title
+            await db.save_fsm_state(uid, States.DL_ASK_QUALITY, data)
+            await bot.reply_to(
+                msg, f"Видео: {title}\nВыберите качество:",
+                reply_markup=quality_keyboard(),
+            )
+
+        elif state == States.PLAYLIST_ASK_NAME:
+            data["new_playlist_name"] = text
+            await db.save_fsm_state(uid, state, data)
+            await bot.reply_to(
+                msg,
+                f"Плейлист «{text}» будет создан через веб-интерфейс.\n"
+                f"Пожалуйста, создайте плейлист «{text}» в VideoHost и вернитесь.",
+                reply_markup=cancel_keyboard(),
+            )
