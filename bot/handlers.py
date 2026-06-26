@@ -211,34 +211,35 @@ def register_handlers(bot: AsyncTeleBot):
                 return
 
             # ── Quality selection (shared for subscribe and dl) ──
-            if data_str.startswith("q:"):
+            # NOTE: only handle SUB_ASK_QUALITY / DL_ASK_QUALITY here.
+            # QUALITY_VALUE (changing existing sub quality) is handled below.
+            if data_str.startswith("q:") and state in (States.SUB_ASK_QUALITY, States.DL_ASK_QUALITY):
                 quality = data_str.split(":")[1]
                 if quality not in QUALITY_LABELS:
                     await bot.answer_callback_query(call.id, "Неизвестное качество")
                     return
                 data["quality"] = quality
-                await db.save_fsm_state(uid, state, data)
 
                 if state == States.SUB_ASK_QUALITY:
-                    await db.save_fsm_state(uid, States.SUB_ASK_PLAYLIST, data)
                     playlists = await list_playlists()
                     kb = playlists_keyboard(playlists)
                     await bot.edit_message_text(
-                        call.message.chat.id, call.message.message_id,
                         f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист:",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
                         reply_markup=kb,
                     )
+                    await db.save_fsm_state(uid, States.SUB_ASK_PLAYLIST, data)
                 elif state == States.DL_ASK_QUALITY:
-                    await db.save_fsm_state(uid, States.DL_ASK_PLAYLIST, data)
                     playlists = await list_playlists()
                     kb = playlists_keyboard(playlists, with_skip=True)
                     await bot.edit_message_text(
-                        call.message.chat.id, call.message.message_id,
                         f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист (или пропустите):",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
                         reply_markup=kb,
                     )
-                else:
-                    await bot.answer_callback_query(call.id, "Неожиданное состояние")
+                    await db.save_fsm_state(uid, States.DL_ASK_PLAYLIST, data)
                 return
 
             # ── Playlist selection ──
@@ -250,16 +251,17 @@ def register_handlers(bot: AsyncTeleBot):
                         await bot.answer_callback_query(call.id, "Выберите плейлист!")
                         return
                     data["playlist_id"] = playlist_id
-                    await db.save_fsm_state(uid, States.SUB_CONFIRM, data)
                     await bot.edit_message_text(
-                        call.message.chat.id, call.message.message_id,
                         f"Подтвердите подписку:\n\n"
                         f"Канал: {data.get('channel_title', '?')}\n"
                         f"Плейлист: {playlist_id}\n"
                         f"Качество: {QUALITY_LABELS.get(data.get('quality', '720'), '?')}\n\n"
                         f"Новые видео будут автоматически загружаться.",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
                         reply_markup=yes_no_keyboard(),
                     )
+                    await db.save_fsm_state(uid, States.SUB_CONFIRM, data)
 
                 elif state == States.DL_ASK_PLAYLIST:
                     data["playlist_id"] = "" if playlist_id == "skip" else playlist_id
@@ -291,8 +293,9 @@ def register_handlers(bot: AsyncTeleBot):
                 )
                 await db.clear_fsm_state(uid)
                 await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id,
                     f"Подписка оформлена! (#{sub_id})\nКанал: {data['channel_title']}",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
                 )
                 await bot.answer_callback_query(call.id, "Готово!")
                 return
@@ -300,7 +303,9 @@ def register_handlers(bot: AsyncTeleBot):
             if data_str == "no" and state == States.SUB_CONFIRM:
                 await db.clear_fsm_state(uid)
                 await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id, "Отменено.",
+                    "Отменено.",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
                 )
                 return
 
@@ -311,8 +316,9 @@ def register_handlers(bot: AsyncTeleBot):
                 if sub:
                     await db.delete_subscription(sub_id)
                     await bot.edit_message_text(
-                        call.message.chat.id, call.message.message_id,
                         f"Удалена подписка: {sub.get('channel_title', sub['channel_id'])}",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
                     )
                 await bot.answer_callback_query(call.id, "Удалено")
                 return
@@ -321,14 +327,15 @@ def register_handlers(bot: AsyncTeleBot):
             if data_str.startswith("sub:") and state == States.QUALITY_SELECT:
                 sub_id = int(data_str.split(":")[1])
                 data["sub_id"] = sub_id
-                await db.save_fsm_state(uid, States.QUALITY_VALUE, data)
                 sub = await db.get_subscription(sub_id)
                 cur_q = sub.get("quality", "720") if sub else "720"
                 await bot.edit_message_text(
-                    call.message.chat.id, call.message.message_id,
                     f"Текущее качество: {QUALITY_LABELS.get(cur_q, cur_q)}\nВыберите новое:",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
                     reply_markup=quality_keyboard(),
                 )
+                await db.save_fsm_state(uid, States.QUALITY_VALUE, data)
                 return
 
             if data_str.startswith("q:") and state == States.QUALITY_VALUE:
@@ -341,8 +348,9 @@ def register_handlers(bot: AsyncTeleBot):
                     await db.update_subscription_quality(sub_id, quality)
                     await db.clear_fsm_state(uid)
                     await bot.edit_message_text(
-                        call.message.chat.id, call.message.message_id,
                         f"Качество изменено на {QUALITY_LABELS[quality]}",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
                     )
                 await bot.answer_callback_query(call.id, "Готово!")
                 return

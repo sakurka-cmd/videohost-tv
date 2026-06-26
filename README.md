@@ -99,23 +99,24 @@ nano .env
 ```bash
 # Прямой запуск (для тестирования)
 source venv/bin/activate
-python -m bot
+python -m bot.main
 
-# Или через systemd (см. yt2tg-bot.service)
-systemctl --user start yt2tg-bot
-systemctl --user enable yt2tg-bot
+# Или через systemd (см. ниже)
 ```
 
 ### Systemd (опционально)
 
+Пример — установка под root (замените пути, если ставите под другим пользователем):
+
 ```bash
-cp yt2tg-bot.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user start yt2tg-bot
-systemctl --user enable yt2tg-bot
+# Файл сервиса в репозитории уже настроен на /root/yt2tg-bot.
+# Если ставите под другим пользователем, отредактируйте User/WorkingDirectory/ExecStart.
+sudo cp yt2tg-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yt2tg-bot
 
 # Логи
-journalctl --user -u yt2tg-bot -f
+sudo journalctl -u yt2tg-bot -f
 ```
 
 ## Как работает

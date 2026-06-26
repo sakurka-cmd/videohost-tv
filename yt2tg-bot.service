@@ -4,12 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=userv
-WorkingDirectory=/home/userv/yt2tg-bot
-ExecStart=/home/userv/yt2tg-bot/venv/bin/python -m bot.main
+User=root
+WorkingDirectory=/root/yt2tg-bot
+ExecStart=/root/yt2tg-bot/venv/bin/python -m bot.main
 Restart=on-failure
 RestartSec=10
-EnvironmentFile=/home/userv/yt2tg-bot/.env
+EnvironmentFile=/root/yt2tg-bot/.env
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
