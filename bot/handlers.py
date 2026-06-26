@@ -12,7 +12,7 @@ from bot.downloader import (
     download_video, extract_video_id, extract_channel_id,
     get_video_info, get_channel_info, cleanup_file, current_status,
 )
-from bot.uploader import upload_video, list_playlists
+from bot.uploader import upload_video, list_playlists, find_or_create_playlist
 from bot.keyboards import (
     quality_keyboard, yes_no_keyboard, cancel_keyboard, playlists_keyboard,
     subscriptions_keyboard, main_menu_keyboard,
@@ -221,25 +221,31 @@ def register_handlers(bot: AsyncTeleBot):
                 data["quality"] = quality
 
                 if state == States.SUB_ASK_QUALITY:
-                    playlists = await list_playlists()
-                    kb = playlists_keyboard(playlists)
+                    # Skip playlist selection — playlist will be auto-created on confirm
+                    channel_title = data.get("channel_title", "Канал")
                     await bot.edit_message_text(
-                        f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист:",
+                        f"Качество: {QUALITY_LABELS[quality]}\n\n"
+                        f"Канал: {channel_title}\n\n"
+                        f"Плейлист «{channel_title}» будет создан автоматически.\n"
+                        f"Подтвердите подписку:",
                         chat_id=call.message.chat.id,
                         message_id=call.message.message_id,
-                        reply_markup=kb,
+                        reply_markup=yes_no_keyboard(),
                     )
-                    await db.save_fsm_state(uid, States.SUB_ASK_PLAYLIST, data)
+                    await db.save_fsm_state(uid, States.SUB_CONFIRM, data)
                 elif state == States.DL_ASK_QUALITY:
-                    playlists = await list_playlists()
-                    kb = playlists_keyboard(playlists, with_skip=True)
+                    # Skip playlist selection — start download immediately,
+                    # playlist will be auto-created from video's channel name.
+                    title = data.get("title", "Видео")
                     await bot.edit_message_text(
-                        f"Качество: {QUALITY_LABELS[quality]}\nВыберите плейлист (или пропустите):",
+                        f"Качество: {QUALITY_LABELS[quality]}\n\n"
+                        f"Начинаю загрузку:\n{title}\n\n"
+                        f"Плейлист будет создан по имени канала автоматически.",
                         chat_id=call.message.chat.id,
                         message_id=call.message.message_id,
-                        reply_markup=kb,
                     )
-                    await db.save_fsm_state(uid, States.DL_ASK_PLAYLIST, data)
+                    await db.clear_fsm_state(uid)
+                    asyncio.create_task(_process_oneoff(uid, data))
                 return
 
             # ── Playlist selection ──
@@ -285,15 +291,26 @@ def register_handlers(bot: AsyncTeleBot):
 
             # ── Subscribe confirmation ──
             if data_str == "yes" and state == States.SUB_CONFIRM:
+                channel_title = data.get("channel_title", data.get("channel_id", "Канал"))
+                # Find or create playlist named after the channel
+                pl = await find_or_create_playlist(channel_title)
+                if not pl or not pl.get("id"):
+                    await bot.answer_callback_query(
+                        call.id, f"Не удалось создать плейлист «{channel_title}»"
+                    )
+                    return
+                playlist_id = pl["id"]
                 sub_id = await db.add_subscription(
                     data["channel_id"],
-                    data["channel_title"],
-                    data["playlist_id"],
+                    channel_title,
+                    playlist_id,
                     data.get("quality", DEFAULT_QUALITY),
                 )
                 await db.clear_fsm_state(uid)
                 await bot.edit_message_text(
-                    f"Подписка оформлена! (#{sub_id})\nКанал: {data['channel_title']}",
+                    f"Подписка оформлена! (#{sub_id})\n"
+                    f"Канал: {channel_title}\n"
+                    f"Плейлист: «{channel_title}» (id: {playlist_id})",
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                 )
@@ -440,13 +457,22 @@ def register_handlers(bot: AsyncTeleBot):
         yt_id = data.get("youtube_id", "")
         title = data.get("title", yt_id)
         quality = data.get("quality", DEFAULT_QUALITY)
-        playlist_id = data.get("playlist_id", "")
 
         try:
             if await db.is_video_processed(yt_id):
                 current_status.update({"task": "", "progress": "", "error": ""})
                 await bot.send_message(user_id, f"Видео уже загружено ранее: {title}")
                 return
+
+            # Get channel name from video info (used as playlist name)
+            info = await get_video_info(url)
+            channel_name = (info.get("channel") if info else "") or data.get("channel_title") or "YouTube"
+            current_status.update({"task": "download", "url": url, "title": title,
+                                   "progress": "0%", "error": ""})
+            await bot.send_message(user_id, f"📡 Канал: {channel_name}\nСоздаю плейлист...")
+
+            pl = await find_or_create_playlist(channel_name)
+            playlist_id = pl.get("id", "") if pl else ""
 
             file_path = await download_video(url, quality)
             if not file_path or file_path == "TOO_LARGE":
@@ -460,9 +486,10 @@ def register_handlers(bot: AsyncTeleBot):
             vh_id = result.get("id", "") if result else ""
             if vh_id:
                 await db.mark_video_processed(yt_id, None, title, quality, vh_id)
-                msg_text = f"Загружено: {title}"
-                if vh_id:
-                    msg_text += f"\nID: {vh_id}"
+                msg_text = f"✅ Загружено: {title}\nКанал: {channel_name}"
+                if playlist_id:
+                    msg_text += f"\nПлейлист: «{channel_name}» (id: {playlist_id})"
+                msg_text += f"\nID: {vh_id}"
                 await bot.send_message(user_id, msg_text)
             else:
                 await bot.send_message(user_id, f"Ошибка загрузки на сервер: {title}")

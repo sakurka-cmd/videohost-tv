@@ -93,6 +93,40 @@ async def list_playlist_items(playlist_id: str) -> list[dict]:
     return []
 
 
+async def find_or_create_playlist(name: str, description: str = "") -> dict | None:
+    """Find an existing playlist by name, or create a new one via bot API.
+
+    Returns: {"id": "...", "name": "...", "description": "...", "createdAt": "..."}
+    or None on failure.
+    """
+    if not name or not name.strip():
+        return None
+    payload = {"name": name.strip()}
+    if description and description.strip():
+        payload["description"] = description.strip()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{VIDEOHOST_URL}/api/bot/playlists",
+                json=payload,
+                headers=_headers(),
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status in (200, 201):
+                    data = await resp.json(content_type=None)
+                    logger.info("find_or_create_playlist('%s') -> %s (status=%d)",
+                                name, data.get("id") if data else "?", resp.status)
+                    return data
+                else:
+                    err = await resp.text()
+                    logger.error("find_or_create_playlist failed %d: %s",
+                                 resp.status, err[:300])
+                    return None
+    except Exception as e:
+        logger.error("find_or_create_playlist error: %s", e)
+        return None
+
+
 async def reorder_playlist(playlist_id: str, items: list[dict]) -> bool:
     """items: [{itemId, order}, ...]"""
     # This endpoint requires auth session, not bot token.
