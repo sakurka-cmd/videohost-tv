@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_card">#FF1F1F23</color>
+    <color name="bg_dark">#FF0F0F10</color>
+    <color name="black">#FF000000</color>
+    <color name="red_accent">#FFEF4444</color>
+    <color name="white">#FFFFFFFF</color>
+    <string name="app_name">VideoHost TV</string>
+    <style name="Theme.VideoHostTV" parent="android:Theme.Material.NoActionBar"/>
+</resources>
