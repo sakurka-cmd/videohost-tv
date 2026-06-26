@@ -60,7 +60,7 @@ bot/
 ### Установка
 
 ```bash
-git clone https://github.com/vladimir-turin/yt2tg-bot.git
+git clone https://github.com/sakurka-cmd/yt2tg-bot.git
 cd yt2tg-bot
 
 python3 -m venv venv
