@@ -36,8 +36,13 @@ async def _request(method: str, path: str, **kwargs) -> dict | None:
 
 
 async def upload_video(file_path: str, title: str,
-                       playlist_id: str | None = None) -> dict | None:
-    """Upload video to VideoHost. Returns response dict or None."""
+                       playlist_id: str | None = None,
+                       published_at: str = "") -> dict | None:
+    """Upload video to VideoHost. Returns response dict or None.
+
+    published_at: optional ISO date string or YYYYMMDD (yt-dlp upload_date).
+    Stored on the Video record and used for chronological playlist sorting.
+    """
     global current_status
     file_size = os.path.getsize(file_path)
     size_mb = file_size / (1024 * 1024)
@@ -46,7 +51,8 @@ async def upload_video(file_path: str, title: str,
         "task": "upload", "title": title,
         "progress": f"{size_mb:.1f} MB uploading...", "error": "",
     })
-    logger.info("Uploading to VideoHost: %s (%.1f MB) playlist=%s", title, size_mb, playlist_id)
+    logger.info("Uploading to VideoHost: %s (%.1f MB) playlist=%s published_at=%s",
+                title, size_mb, playlist_id, published_at or "-")
 
     try:
         with open(file_path, "rb") as f:
@@ -55,6 +61,8 @@ async def upload_video(file_path: str, title: str,
             form.add_field("title", title)
             if playlist_id:
                 form.add_field("playlistId", playlist_id)
+            if published_at:
+                form.add_field("publishedAt", published_at)
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -77,6 +85,35 @@ async def upload_video(file_path: str, title: str,
         logger.error("Upload error: %s", e)
         current_status["error"] = str(e)
         return None
+
+
+async def sort_playlist(playlist_id: str) -> bool:
+    """Ask VideoHost to reorder playlist items chronologically by publishedAt.
+
+    Returns True on success, False otherwise.
+    """
+    if not playlist_id:
+        return False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{VIDEOHOST_URL}/api/bot/playlists/{playlist_id}/sort",
+                headers=_headers(),
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    logger.info("Sorted playlist %s: %s items reordered",
+                                playlist_id, data.get("reordered", "?"))
+                    return True
+                else:
+                    err = await resp.text()
+                    logger.error("Sort playlist %s failed %d: %s",
+                                 playlist_id, resp.status, err[:300])
+                    return False
+    except Exception as e:
+        logger.error("Sort playlist error: %s", e)
+        return False
 
 
 async def list_playlists() -> list[dict]:

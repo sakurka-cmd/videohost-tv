@@ -12,7 +12,7 @@ from bot.downloader import (
     download_video, extract_video_id, extract_channel_id,
     get_video_info, get_channel_info, cleanup_file, current_status,
 )
-from bot.uploader import upload_video, list_playlists, find_or_create_playlist
+from bot.uploader import upload_video, list_playlists, find_or_create_playlist, sort_playlist
 from bot.keyboards import (
     quality_keyboard, yes_no_keyboard, cancel_keyboard, playlists_keyboard,
     subscriptions_keyboard, main_menu_keyboard,
@@ -464,9 +464,13 @@ def register_handlers(bot: AsyncTeleBot):
                 await bot.send_message(user_id, f"Видео уже загружено ранее: {title}")
                 return
 
-            # Get channel name from video info (used as playlist name)
+            # Get channel name + upload_date from video info
             info = await get_video_info(url)
             channel_name = (info.get("channel") if info else "") or data.get("channel_title") or "YouTube"
+            published_at = (info.get("upload_date") if info else "") or ""
+            # Re-fetch title from info (more accurate than what user passed in /dl url)
+            if info and info.get("title"):
+                title = info["title"]
             current_status.update({"task": "download", "url": url, "title": title,
                                    "progress": "0%", "error": ""})
             await bot.send_message(user_id, f"📡 Канал: {channel_name}\nСоздаю плейлист...")
@@ -480,11 +484,14 @@ def register_handlers(bot: AsyncTeleBot):
                 await bot.send_message(user_id, f"{err_msg}: {title}")
                 return
 
-            result = await upload_video(file_path, title, playlist_id or None)
+            result = await upload_video(file_path, title, playlist_id or None, published_at)
             cleanup_file(file_path)
 
             vh_id = result.get("id", "") if result else ""
             if vh_id:
+                # Re-sort the playlist chronologically by publishedAt
+                if playlist_id:
+                    await sort_playlist(playlist_id)
                 await db.mark_video_processed(yt_id, None, title, quality, vh_id)
                 msg_text = f"✅ Загружено: {title}\nКанал: {channel_name}"
                 if playlist_id:

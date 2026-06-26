@@ -68,6 +68,8 @@ async def get_video_info(url: str) -> dict | None:
             "description": info.get("description", "")[:500],
             "thumbnail": info.get("thumbnail", ""),
             "filesize_approx": info.get("filesize_approx", 0),
+            # yt-dlp returns upload_date as YYYYMMDD string
+            "upload_date": info.get("upload_date", ""),
         }
     except asyncio.TimeoutError:
         logger.error("yt-dlp info timeout for %s", url)

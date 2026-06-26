@@ -8,7 +8,7 @@ import feedparser
 
 from bot import database as db
 from bot.downloader import extract_video_id, download_video, cleanup_file, current_status
-from bot.uploader import upload_video
+from bot.uploader import upload_video, sort_playlist
 from bot.config import CHECK_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,15 @@ async def process_subscription(sub: dict) -> int:
 
         logger.info("New video from %s: %s (%s)", channel_id, title, yt_id)
 
+        # Get publication date from RSS entry (used for playlist sorting)
+        published_iso = ""
+        if published:
+            try:
+                pub_dt = datetime(*published[:6], tzinfo=timezone.utc)
+                published_iso = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+
         file_path = await download_video(yt_url, quality)
         if not file_path or file_path == "TOO_LARGE":
             if file_path == "TOO_LARGE":
@@ -74,7 +83,7 @@ async def process_subscription(sub: dict) -> int:
                 await db.mark_video_processed(yt_id, sub_id, title, quality, "")
             continue
 
-        result = await upload_video(file_path, title, playlist_id or None)
+        result = await upload_video(file_path, title, playlist_id or None, published_iso)
         cleanup_file(file_path)
 
         if result:
@@ -82,6 +91,9 @@ async def process_subscription(sub: dict) -> int:
             await db.mark_video_processed(yt_id, sub_id, title, quality, vh_id)
             uploaded += 1
             logger.info("Uploaded: %s → %s", title, vh_id)
+            # Re-sort playlist chronologically
+            if playlist_id:
+                await sort_playlist(playlist_id)
         else:
             logger.error("Failed to upload: %s", title)
 
