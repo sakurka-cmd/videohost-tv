@@ -64,13 +64,18 @@ async def get_video_info(url: str) -> dict | None:
             "id": info.get("id", ""),
             "title": info.get("title", ""),
             "duration": info.get("duration", 0),
-            # channel = display name (e.g. "Асафьев. Жизнь")
+            # channel = display name (e.g. "Асафьев. Жизнь" or "Russian Car Crash channel")
             "channel": info.get("channel", ""),
-            # uploader = handle without @ (e.g. "AsafevLife"), or display name
-            # when channel has no handle. Prefer uploader for playlist naming
-            # because it's stable across locales and matches the URL.
+            # uploader_id = full handle with @ (e.g. "@russiancrashchannel6171")
+            # This is the canonical handle on YouTube — use this (without @) for
+            # playlist naming so /dl and /subscribe produce the same name.
+            "uploader_id": info.get("uploader_id", ""),
+            # uploader = display name (NOT handle) for many YouTube videos — kept for backward compat only
             "uploader": info.get("uploader", "") or info.get("channel", ""),
             "uploader_url": info.get("uploader_url", "") or info.get("channel_url", ""),
+            # channel_id = UCxxxxxxx (unique YouTube channel ID, never changes)
+            # This is the reliable key for matching /dl → subscription
+            "channel_id": info.get("channel_id", ""),
             "description": info.get("description", "")[:500],
             "thumbnail": info.get("thumbnail", ""),
             "filesize_approx": info.get("filesize_approx", 0),
@@ -85,8 +90,79 @@ async def get_video_info(url: str) -> dict | None:
         return None
 
 
+def clean_handle(s: str) -> str:
+    """Extract a clean handle (without @, without URL prefix) from various
+    yt-dlp fields: uploader_id (@russiancrashchannel6171) or uploader_url
+    (https://www.youtube.com/@russiancrashchannel6171).
+
+    Returns the bare handle, e.g. 'russiancrashchannel6171'.
+    Returns empty string if input is empty.
+    """
+    if not s:
+        return ""
+    s = s.strip()
+    if s.startswith("@"):
+        return s[1:]
+    if s.startswith("http"):
+        from urllib.parse import urlparse
+        path = urlparse(s).path.strip("/")
+        if path.startswith("@"):
+            return path[1:].split("/")[0]
+    return s
+
+
 async def get_channel_info(url: str) -> dict | None:
-    """Get channel info via RSS feed."""
+    """Get channel info via yt-dlp (preferred) or RSS feed (fallback).
+
+    Returns: {
+        "id": <channel_id UCxxxxx or handle>,
+        "channel_id": <UCxxxxx>,           # unique YouTube channel ID
+        "channel_handle": <handle without @>,  # e.g. "russiancrashchannel6171"
+        "title": <display name>,            # e.g. "Russian Car Crash channel"
+        "link": <channel URL>,
+    }
+    """
+    # Try yt-dlp first — it returns the canonical channel_id (UCxxxxx)
+    # and uploader_id (the actual handle YouTube uses, which may differ
+    # from the handle in the URL the user pasted).
+    cmd = [
+        YTDLP_BIN, "--dump-json", "--no-download",
+        "--playlist-items", "1",  # only fetch first video to save time
+        url,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        if proc.returncode == 0:
+            import json
+            info = json.loads(stdout.decode())
+            channel_id = info.get("channel_id", "")
+            uploader_id = info.get("uploader_id", "")
+            handle = clean_handle(uploader_id) or clean_handle(info.get("uploader_url", ""))
+            display_name = info.get("channel", "") or handle or channel_id
+            return {
+                "id": channel_id or handle or extract_channel_id(url) or "",
+                "channel_id": channel_id,
+                "channel_handle": handle,
+                "title": display_name,
+                "link": info.get("uploader_url", url),
+            }
+        else:
+            logger.warning("yt-dlp channel info failed, falling back to RSS: %s",
+                          stderr.decode(errors="replace")[:300])
+    except asyncio.TimeoutError:
+        logger.warning("yt-dlp channel info timeout, falling back to RSS")
+    except Exception as e:
+        logger.warning("yt-dlp channel info error, falling back to RSS: %s", e)
+
+    # Fallback to RSS (used when yt-dlp can't resolve the channel)
+    return await _get_channel_info_rss(url)
+
+
+async def _get_channel_info_rss(url: str) -> dict | None:
+    """Fallback: get channel info via RSS feed (less accurate, no UCxxxxx)."""
     channel_id = extract_channel_id(url)
     if not channel_id:
         return None
@@ -103,11 +179,13 @@ async def get_channel_info(url: str) -> dict | None:
         if feed.feed:
             return {
                 "id": channel_id,
+                "channel_id": "",  # RSS doesn't reliably give UCxxxxx
+                "channel_handle": clean_handle(channel_id) or channel_id,
                 "title": feed.feed.get("title", channel_id),
                 "link": feed.feed.get("link", url),
             }
     except Exception as e:
-        logger.error("Channel info error: %s", e)
+        logger.error("Channel info RSS error: %s", e)
     return None
 
 

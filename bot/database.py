@@ -68,6 +68,11 @@ async def init_db() -> aiosqlite.Connection:
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.execute("PRAGMA busy_timeout=5000")
     await _db.executescript(SCHEMA)
+    # Additive migrations (idempotent — ignore "duplicate column" errors)
+    try:
+        await _db.execute("ALTER TABLE subscriptions ADD COLUMN youtube_channel_id TEXT DEFAULT ''")
+    except Exception:
+        pass  # Column already exists
     await _db.commit()
     return _db
 
@@ -115,24 +120,53 @@ async def clear_fsm_state(user_id: int):
 
 async def add_subscription(channel_id: str, channel_title: str,
                            playlist_id: str, quality: str = "720",
-                           check_interval: int = 3600) -> int:
+                           check_interval: int = 3600,
+                           youtube_channel_id: str = "") -> int:
     db = get_db()
-    # Dedup by channel_id
-    existing = await db.execute("SELECT id FROM subscriptions WHERE channel_id=?", (channel_id,))
-    row = await existing.fetchone()
-    if row:
+    # Dedup by channel_id (handle) OR by youtube_channel_id (UCxxxxx) if set
+    existing = None
+    if youtube_channel_id:
+        cur = await db.execute(
+            "SELECT id FROM subscriptions WHERE youtube_channel_id=?",
+            (youtube_channel_id,),
+        )
+        existing = await cur.fetchone()
+    if not existing:
+        cur = await db.execute("SELECT id FROM subscriptions WHERE channel_id=?", (channel_id,))
+        existing = await cur.fetchone()
+    if existing:
         await db.execute(
-            "UPDATE subscriptions SET playlist_id=?, quality=?, active=1, channel_title=? WHERE id=?",
-            (playlist_id, quality, channel_title, row["id"]),
+            "UPDATE subscriptions SET playlist_id=?, quality=?, active=1, channel_title=?, "
+            "youtube_channel_id=? WHERE id=?",
+            (playlist_id, quality, channel_title, youtube_channel_id, existing["id"]),
         )
         await db.commit()
-        return row["id"]
+        return existing["id"]
     cur = await db.execute(
-        "INSERT INTO subscriptions (channel_id, channel_title, playlist_id, quality, check_interval) VALUES (?,?,?,?,?)",
-        (channel_id, channel_title, playlist_id, quality, check_interval),
+        "INSERT INTO subscriptions (channel_id, channel_title, playlist_id, quality, check_interval, youtube_channel_id) "
+        "VALUES (?,?,?,?,?,?)",
+        (channel_id, channel_title, playlist_id, quality, check_interval, youtube_channel_id),
     )
     await db.commit()
     return cur.lastrowid
+
+
+async def find_subscription_by_youtube_channel_id(youtube_channel_id: str) -> dict | None:
+    """Find an active subscription by its canonical YouTube channel_id (UCxxxxx).
+
+    Used by /dl to discover that a video belongs to a channel the user is
+    already subscribed to, so we can reuse the existing playlist instead of
+    creating a new one.
+    """
+    if not youtube_channel_id:
+        return None
+    db = get_db()
+    cur = await db.execute(
+        "SELECT * FROM subscriptions WHERE youtube_channel_id=? AND active=1 LIMIT 1",
+        (youtube_channel_id,),
+    )
+    row = await cur.fetchone()
+    return dict(row) if row else None
 
 
 async def list_subscriptions() -> list[dict]:

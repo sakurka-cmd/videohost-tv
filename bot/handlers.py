@@ -224,7 +224,7 @@ def register_handlers(bot: AsyncTeleBot):
 
                 if state == States.SUB_ASK_QUALITY:
                     # Skip playlist selection — playlist will be auto-created on confirm
-                    channel_handle = data.get("channel_id", "Канал")
+                    channel_handle = data.get("channel_handle") or data.get("channel_id", "Канал")
                     channel_title = data.get("channel_title", channel_handle)
                     await bot.edit_message_text(
                         f"Качество: {QUALITY_LABELS[quality]}\n\n"
@@ -295,11 +295,12 @@ def register_handlers(bot: AsyncTeleBot):
 
             # ── Subscribe confirmation ──
             if data_str == "yes" and state == States.SUB_CONFIRM:
-                # Use the channel handle (channel_id extracted from URL) as the
-                # playlist name — this is locale-independent and matches the
-                # /dl flow which uses yt-dlp's uploader field (also a handle).
-                channel_handle = data.get("channel_id") or data.get("channel_title") or "Канал"
+                # Use the channel handle (channel_handle, extracted from yt-dlp's
+                # uploader_id, which is the canonical handle YouTube uses) as the
+                # playlist name — this matches the /dl flow exactly.
+                channel_handle = data.get("channel_handle") or data.get("channel_id") or data.get("channel_title") or "Канал"
                 channel_title = data.get("channel_title", channel_handle)
+                yt_channel_id = data.get("youtube_channel_id", "")
                 # Find or create playlist named after the channel handle
                 pl = await find_or_create_playlist(channel_handle)
                 if not pl or not pl.get("id"):
@@ -309,16 +310,23 @@ def register_handlers(bot: AsyncTeleBot):
                     return
                 playlist_id = pl["id"]
                 sub_id = await db.add_subscription(
-                    data["channel_id"],
-                    channel_title,
+                    channel_handle,                # channel_id (handle, used by RSS)
+                    channel_title,                  # display name
                     playlist_id,
                     data.get("quality", DEFAULT_QUALITY),
+                    youtube_channel_id=yt_channel_id,  # UCxxxxx (used by /dl matching)
                 )
                 await db.clear_fsm_state(uid)
-                await bot.edit_message_text(
-                    f"Подписка оформлена! (#{sub_id})\n"
-                    f"Канал: {channel_title}\n"
+                msg_lines = [
+                    f"Подписка оформлена! (#{sub_id})",
+                    f"Канал: {channel_title}",
+                    f"Handle: @{channel_handle}",
                     f"Плейлист: «{channel_handle}» (id: {playlist_id})",
+                ]
+                if yt_channel_id:
+                    msg_lines.append(f"YouTube ID: {yt_channel_id}")
+                await bot.edit_message_text(
+                    "\n".join(msg_lines),
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                 )
@@ -411,13 +419,19 @@ def register_handlers(bot: AsyncTeleBot):
                 except Exception as e:
                     logger.error("get_channel_info error: %s", e)
                     info = None
-                title = info["title"] if info else ch_id
-                data["channel_id"] = ch_id
-                data["channel_title"] = title
+                # info from yt-dlp has: channel_id (UCxxxxx), channel_handle (without @),
+                # title (display name). Fallback to extract_channel_id if yt-dlp failed.
+                yt_channel_id = (info.get("channel_id") if info else "") or ""
+                channel_handle = (info.get("channel_handle") if info else "") or ch_id
+                title = (info.get("title") if info else "") or channel_handle
+                data["channel_id"] = channel_handle  # used as subscription channel_id (handle)
+                data["channel_handle"] = channel_handle  # used as playlist name
+                data["channel_title"] = title  # display name (for UI messages)
+                data["youtube_channel_id"] = yt_channel_id  # UCxxxxx (for /dl matching)
                 data["original_url"] = text
                 await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
                 await bot.reply_to(
-                    msg, f"Канал: {title}\nВыберите качество:",
+                    msg, f"Канал: {title}\nHandle: @{channel_handle}\nВыберите качество:",
                     reply_markup=quality_keyboard(),
                 )
 
@@ -482,12 +496,18 @@ def register_handlers(bot: AsyncTeleBot):
                 await bot.send_message(user_id, f"Видео уже загружено ранее: {title}")
                 return
 
-            # Get channel handle + upload_date + thumbnail from video info
+            # Get channel handle + upload_date + thumbnail + UC channel_id from video info
             info = await get_video_info(url)
-            # Prefer `uploader` (yt-dlp handle without @, e.g. "AsafevLife")
-            # over `channel` (display name, e.g. "Асафьев. Жизнь") — handle is
-            # locale-independent and matches the channel URL.
-            channel_handle = (info.get("uploader") if info else "") or data.get("channel_id") or data.get("channel_title") or "YouTube"
+            yt_channel_id = (info.get("channel_id") if info else "") or ""
+            # channel_handle = canonical handle from uploader_id (without @, may
+            # have a numeric suffix like "russiancrashchannel6171" if YouTube
+            # added one when the channel was created). This matches what
+            # /subscribe would have stored.
+            from bot.downloader import clean_handle
+            channel_handle = clean_handle(info.get("uploader_id") if info else "") \
+                or clean_handle(info.get("uploader_url") if info else "") \
+                or (info.get("uploader") if info else "") \
+                or data.get("channel_id") or data.get("channel_title") or "YouTube"
             published_at = (info.get("upload_date") if info else "") or ""
             thumbnail_url = (info.get("thumbnail") if info else "") or ""
             # Re-fetch title from info (more accurate than what user passed in /dl url)
@@ -495,10 +515,32 @@ def register_handlers(bot: AsyncTeleBot):
                 title = info["title"]
             current_status.update({"task": "download", "url": url, "title": title,
                                    "progress": "0%", "error": ""})
-            await bot.send_message(user_id, f"📡 Канал: {channel_handle}\nСоздаю плейлист...")
 
-            pl = await find_or_create_playlist(channel_handle)
-            playlist_id = pl.get("id", "") if pl else ""
+            # Check if user is already subscribed to this channel (by UCxxxxx).
+            # If yes, reuse the existing playlist instead of creating a new one.
+            playlist_id = ""
+            reused_sub = False
+            if yt_channel_id:
+                sub = await db.find_subscription_by_youtube_channel_id(yt_channel_id)
+                if sub:
+                    playlist_id = sub.get("playlist_id", "") or ""
+                    if playlist_id:
+                        reused_sub = True
+                        logger.info("Video %s belongs to subscribed channel UC=%s → reusing playlist %s",
+                                    yt_id, yt_channel_id, playlist_id)
+                        await bot.send_message(
+                            user_id,
+                            f"📡 Канал: @{channel_handle} (подписка #{sub['id']})\n"
+                            f"Использую существующий плейлист...",
+                        )
+
+            if not playlist_id:
+                await bot.send_message(
+                    user_id,
+                    f"📡 Канал: @{channel_handle}\nСоздаю плейлист...",
+                )
+                pl = await find_or_create_playlist(channel_handle)
+                playlist_id = pl.get("id", "") if pl else ""
 
             file_path = await download_video(url, quality)
             if not file_path or file_path == "TOO_LARGE":
@@ -520,9 +562,12 @@ def register_handlers(bot: AsyncTeleBot):
                 if playlist_id:
                     await sort_playlist(playlist_id)
                 await db.mark_video_processed(yt_id, None, title, quality, vh_id)
-                msg_text = f"✅ Загружено: {title}\nКанал: {channel_handle}"
+                msg_text = f"✅ Загружено: {title}\nКанал: @{channel_handle}"
                 if playlist_id:
-                    msg_text += f"\nПлейлист: «{channel_handle}» (id: {playlist_id})"
+                    if reused_sub:
+                        msg_text += f"\nПлейлист: существующий (id: {playlist_id})"
+                    else:
+                        msg_text += f"\nПлейлист: «{channel_handle}» (id: {playlist_id})"
                 msg_text += f"\nID: {vh_id}"
                 await bot.send_message(user_id, msg_text)
             else:
