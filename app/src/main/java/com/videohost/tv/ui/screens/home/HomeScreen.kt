@@ -123,7 +123,7 @@ fun HomeScreen(
                             .padding(16.dp),
                     ) {
                         Text(
-                            "VideoHost",
+                            "UTube",
                             color = Color.White,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,

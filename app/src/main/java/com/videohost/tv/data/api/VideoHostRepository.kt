@@ -23,6 +23,7 @@ private val Context.dataStore by preferencesDataStore(name = "videohost_prefs")
 private val SERVER_URL_KEY = stringPreferencesKey("server_url")
 private val SESSION_COOKIE_KEY = stringPreferencesKey("session_cookie")
 private val AUTOPLAY_NEXT_KEY = androidx.datastore.preferences.core.booleanPreferencesKey("autoplay_next")
+private val SPEED_PREFIX = "speed_"  // speed_<playlistId> = "1.0" | "1.25" | etc.
 
 /**
  * Holds runtime state for the VideoHost client: base URL + session cookie.
@@ -56,6 +57,20 @@ class VideoHostRepository(private val context: Context) {
     suspend fun getAutoplayNext(): Boolean = autoplayNextFlow.first()
     suspend fun setAutoplayNext(value: Boolean) {
         context.dataStore.edit { it[AUTOPLAY_NEXT_KEY] = value }
+    }
+
+    // Per-playlist playback speed (1.0, 1.25, 1.5, 1.75, 2.0). Stored as
+    // stringPreferencesKey("speed_<playlistId>"). Default 1.0.
+    suspend fun getPlaybackSpeed(playlistId: String?): Float {
+        if (playlistId.isNullOrEmpty()) return 1.0f
+        val key = stringPreferencesKey(SPEED_PREFIX + playlistId)
+        return context.dataStore.data.map { it[key]?.toFloatOrNull() ?: 1.0f }.first()
+    }
+
+    suspend fun setPlaybackSpeed(playlistId: String?, speed: Float) {
+        if (playlistId.isNullOrEmpty()) return
+        val key = stringPreferencesKey(SPEED_PREFIX + playlistId)
+        context.dataStore.edit { it[key] = speed.toString() }
     }
 
     /**

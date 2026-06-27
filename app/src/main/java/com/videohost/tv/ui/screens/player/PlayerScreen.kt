@@ -3,6 +3,9 @@ package com.videohost.tv.ui.screens.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -11,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -19,6 +23,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -42,10 +48,26 @@ fun PlayerScreen(
     var currentIndex by remember { mutableStateOf(target.allVideoIds.indexOf(target.videoId).coerceAtLeast(0)) }
     var currentVideoId by remember { mutableStateOf(target.videoId) }
 
+    // Available playback speeds: 0.5, 1.0, 1.25, 1.5, 1.75, 2.0
+    // (0.25 and 0.75 removed per user request, 1.75 added)
+    val speeds = remember { floatArrayOf(0.5f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f) }
+    var speedIdx by remember { mutableStateOf(1) }  // default 1.0x
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    var speedMenuDismissAt by remember { mutableStateOf(0L) }
+
     // Read autoplay setting (default true)
     val autoplayNext = remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         autoplayNext.value = repo.autoplayNextFlow.first()
+        // Load saved playback speed for this playlist
+        val savedSpeed = repo.getPlaybackSpeed(target.playlistId)
+        val idx = speeds.indexOfFirst { kotlin.math.abs(it - savedSpeed) < 0.01f }
+        if (idx >= 0) speedIdx = idx
+    }
+
+    // Apply speed to player whenever it changes
+    LaunchedEffect(speedIdx, currentPlayer) {
+        currentPlayer?.playbackParameters = currentPlayer!!.playbackParameters.withSpeed(speeds[speedIdx])
     }
 
     // Build the player for a given video id
@@ -192,6 +214,18 @@ fun PlayerScreen(
                         switchTo(currentIndex + 1)
                         true
                     }
+                    Key.Menu -> {
+                        // Cycle to next speed
+                        speedIdx = (speedIdx + 1) % speeds.size
+                        // Persist for this playlist
+                        scope.launch {
+                            repo.setPlaybackSpeed(target.playlistId, speeds[speedIdx])
+                        }
+                        // Show speed indicator briefly
+                        showSpeedMenu = true
+                        speedMenuDismissAt = System.currentTimeMillis() + 2000
+                        true
+                    }
                     Key.Back -> {
                         scope.launch {
                             try {
@@ -214,15 +248,35 @@ fun PlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        // Disable PlayerView's own controller — we handle all
-                        // D-pad input ourselves via onPreviewKeyEvent above.
-                        // Keeping useController=false prevents PlayerView from
-                        // stealing focus and consuming key events.
                         useController = false
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+
+        // Speed indicator overlay (shows briefly when speed changes via Menu key)
+        if (showSpeedMenu) {
+            // Auto-dismiss after 2 seconds
+            LaunchedEffect(speedMenuDismissAt) {
+                if (speedMenuDismissAt > 0) {
+                    kotlinx.coroutines.delay(2000)
+                    showSpeedMenu = false
+                }
+            }
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.TopCenter)
+                    .padding(16.dp)
+                    .background(Color(0xCC000000), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    "Скорость: ${speeds[speedIdx]}x",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                )
+            }
         }
     }
 

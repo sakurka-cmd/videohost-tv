@@ -62,7 +62,7 @@ fun LoginScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(32.dp).width(400.dp),
         ) {
-            Text("VideoHost", color = Color.White, fontSize = 36.sp)
+            Text("UTube", color = Color.White, fontSize = 36.sp)
             Text(
                 "Войдите в свой аккаунт",
                 color = Color.White.copy(alpha = 0.6f),

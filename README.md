@@ -159,3 +159,14 @@ MIT
 - Login with username/password, server URL configurable in-app
 - YouTube thumbnails auto-used when available
 - Android 5.0+ (API 21), all major TV architectures
+
+### v1.2.0 — 2026-06-27
+
+**Changed:**
+- App renamed to **UTube** (was VideoHost TV). Updated app_name, UI titles, settings screen.
+- App icon replaced with VideoHost favicon (downloaded from production server, used for all densities + adaptive icon foreground + 320×180 banner).
+- Playback speeds available: 0.5x, 1.0x, 1.25x, 1.5x, **1.75x** (new), 2.0x. Removed 0.25x and 0.75x per user request.
+
+**Added:**
+- **Playback speed persisted per playlist**. Speed is stored in DataStore with key `speed_<playlistId>`. When you open a video from a playlist, the saved speed is automatically applied. Change speed with the Menu button on your remote.
+- Speed indicator overlay (shows current speed for 2 seconds when changed via Menu key).
