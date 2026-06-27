@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -13,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -40,11 +44,13 @@ fun SettingsScreen(
 ) {
     val scope = rememberCoroutineScope()
     var url by remember { mutableStateOf("") }
+    var autoplay by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val urlFocus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
         url = repo.serverUrlFlow.first()
+        autoplay = repo.autoplayNextFlow.first()
         urlFocus.requestFocus()
     }
 
@@ -69,7 +75,7 @@ fun SettingsScreen(
                 placeholder = { Text("http://your-server:3002") },
                 singleLine = true,
                 modifier = Modifier
-                    .width(500.dp)
+                    .fillMaxWidth()
                     .focusRequester(urlFocus),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF1F1F23),
@@ -86,6 +92,35 @@ fun SettingsScreen(
                 Text(it, color = Color(0xFFEF4444), fontSize = 13.sp)
             }
 
+            // Autoplay toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1F1F23), RoundedCornerShape(8.dp))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text("Автовоспроизведение", color = Color.White, fontSize = 16.sp)
+                    Text(
+                        "Автоматически включать следующее видео",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 12.sp,
+                    )
+                }
+                Switch(
+                    checked = autoplay,
+                    onCheckedChange = { autoplay = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFFEF4444),
+                        uncheckedThumbColor = Color.White.copy(alpha = 0.7f),
+                        uncheckedTrackColor = Color(0xFF3F3F43),
+                    ),
+                )
+            }
+
             Button(
                 onClick = {
                     val cleaned = url.trim().trimEnd('/')
@@ -100,6 +135,7 @@ fun SettingsScreen(
                     error = null
                     scope.launch {
                         repo.setServerUrl(cleaned)
+                        repo.setAutoplayNext(autoplay)
                         onDone()
                     }
                 },
@@ -108,7 +144,7 @@ fun SettingsScreen(
                     containerColor = Color(0xFFEF4444),
                     contentColor = Color.White,
                 ),
-                modifier = Modifier.width(500.dp).height(48.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
             ) {
                 Text("Сохранить")
             }

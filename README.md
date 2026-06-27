@@ -134,3 +134,28 @@ app/src/main/java/com/videohost/tv/
 ## License
 
 MIT
+
+## Changelog
+
+### v1.1.0 — 2026-06-27
+
+**Fixed:**
+- D-pad not working during playback — `PlayerView` (native Android View) was stealing key events from Compose. Fixed by using `onPreviewKeyEvent` (intercepts before child views) + `useController=false`.
+- Login 500 error — was sending form-encoded body instead of JSON. VideoHost expects `application/json`.
+- Video stream not loading — ExoPlayer wasn't sending session cookie. Fixed by using `OkHttpDataSource.Factory` with `Cookie: vh_session=...` header.
+- App not appearing in Android TV launcher — added PNG icons (all densities) + 320×180 banner + explicit `android:icon`/`android:label`/`android:banner` on `<activity>`.
+
+**Added:**
+- Autoplay next video toggle in Settings (persisted in DataStore, default ON). When enabled, player auto-advances to next video when current ends. When disabled, stops after current video.
+- Better error messages for login failures (401 → «Неверный логин или пароль», 403 → «Аккаунт не одобрен», 500 → «Внутренняя ошибка сервера», timeout/DNS → specific messages).
+- ExoPlayer error logging to logcat (tag `VideoHostTV`).
+
+### v1.0.0 — 2026-06-26
+
+**Initial release:**
+- Netflix-style rows: Continue watching, Recently added, per-playlist
+- D-pad controlled ExoPlayer (OK=play/pause, left/right=seek, up/down=prev/next, Back=close)
+- Watch progress sync via `/api/videos/:id/progress`
+- Login with username/password, server URL configurable in-app
+- YouTube thumbnails auto-used when available
+- Android 5.0+ (API 21), all major TV architectures

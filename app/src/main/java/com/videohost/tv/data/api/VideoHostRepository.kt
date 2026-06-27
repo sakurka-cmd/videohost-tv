@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit
 private val Context.dataStore by preferencesDataStore(name = "videohost_prefs")
 private val SERVER_URL_KEY = stringPreferencesKey("server_url")
 private val SESSION_COOKIE_KEY = stringPreferencesKey("session_cookie")
+private val AUTOPLAY_NEXT_KEY = androidx.datastore.preferences.core.booleanPreferencesKey("autoplay_next")
 
 /**
  * Holds runtime state for the VideoHost client: base URL + session cookie.
@@ -36,6 +37,7 @@ class VideoHostRepository(private val context: Context) {
 
     val serverUrlFlow: Flow<String> = context.dataStore.data.map { it[SERVER_URL_KEY] ?: "" }
     val sessionCookieFlow: Flow<String> = context.dataStore.data.map { it[SESSION_COOKIE_KEY] ?: "" }
+    val autoplayNextFlow: Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_NEXT_KEY] ?: true }
 
     suspend fun getServerUrl(): String = serverUrlFlow.first()
     suspend fun setServerUrl(url: String) {
@@ -49,6 +51,11 @@ class VideoHostRepository(private val context: Context) {
 
     suspend fun clearSession() {
         context.dataStore.edit { it.remove(SESSION_COOKIE_KEY) }
+    }
+
+    suspend fun getAutoplayNext(): Boolean = autoplayNextFlow.first()
+    suspend fun setAutoplayNext(value: Boolean) {
+        context.dataStore.edit { it[AUTOPLAY_NEXT_KEY] = value }
     }
 
     /**

@@ -12,12 +12,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -28,6 +27,7 @@ import androidx.media3.ui.PlayerView
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -42,15 +42,18 @@ fun PlayerScreen(
     var currentIndex by remember { mutableStateOf(target.allVideoIds.indexOf(target.videoId).coerceAtLeast(0)) }
     var currentVideoId by remember { mutableStateOf(target.videoId) }
 
+    // Read autoplay setting (default true)
+    val autoplayNext = remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        autoplayNext.value = repo.autoplayNextFlow.first()
+    }
+
     // Build the player for a given video id
     fun buildPlayer(videoId: String): ExoPlayer {
         val baseUrl = kotlinx.coroutines.runBlocking { repo.getServerUrl() }
         val streamUrl = "$baseUrl/api/videos/$videoId/stream"
         val sessionCookie = kotlinx.coroutines.runBlocking { repo.getSessionCookie() }
 
-        // Build a DataSource.Factory that injects the vh_session cookie header.
-        // ExoPlayer doesn't share OkHttp cookies with our Retrofit client, so we
-        // need to attach the cookie manually on every media request.
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             okhttp3.OkHttpClient.Builder().build()
         ).apply {
@@ -63,14 +66,11 @@ fun PlayerScreen(
             context, httpDataSourceFactory
         )
 
-        // Build MediaItem with a URL, the dataSourceFactory is used by the player
-        // for all HTTP requests (video + audio segments).
         val mediaItem = MediaItem.Builder()
             .setUri(streamUrl)
             .setMimeType("video/mp4")
             .build()
 
-        // Build a progressive media source (for non-HLS mp4 files)
         val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
             dataSourceFactory
         ).createMediaSource(mediaItem)
@@ -85,10 +85,35 @@ fun PlayerScreen(
         player.playWhenReady = true
         player.repeatMode = Player.REPEAT_MODE_OFF
 
-        // Log errors for debugging
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("VideoHostTV", "ExoPlayer error for $videoId", error)
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    scope.launch {
+                        try {
+                            val api = repo.getApi()
+                            api.deleteProgress(videoId)
+                        } catch (_: Exception) {}
+                        // Auto-play next if autoplay is enabled and there's a next video
+                        if (autoplayNext.value) {
+                            val nextIdx = currentIndex + 1
+                            if (nextIdx < target.allVideoIds.size) {
+                                currentIndex = nextIdx
+                                currentVideoId = target.allVideoIds[nextIdx]
+                                currentPlayer?.release()
+                                currentPlayer = buildPlayer(target.allVideoIds[nextIdx])
+                            } else {
+                                onClose()
+                            }
+                        } else {
+                            // Autoplay disabled — just stop, stay on current video
+                            player.playWhenReady = false
+                        }
+                    }
+                }
             }
         })
 
@@ -117,30 +142,6 @@ fun PlayerScreen(
             }
         }
 
-        // When video ends, save final progress = 0 (so next time starts from beginning)
-        player.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) {
-                    scope.launch {
-                        try {
-                            val api = repo.getApi()
-                            api.deleteProgress(videoId)
-                        } catch (_: Exception) {}
-                        // Auto-play next if available
-                        val nextIdx = currentIndex + 1
-                        if (nextIdx < target.allVideoIds.size) {
-                            currentIndex = nextIdx
-                            currentVideoId = target.allVideoIds[nextIdx]
-                            currentPlayer?.release()
-                            currentPlayer = buildPlayer(target.allVideoIds[nextIdx])
-                        } else {
-                            onClose()
-                        }
-                    }
-                }
-            }
-        })
-
         return player
     }
 
@@ -150,14 +151,26 @@ fun PlayerScreen(
         currentPlayer = p
     }
 
-    // D-pad key handler: BACK to close, LEFT/RIGHT seek, OK play/pause, UP/DOWN next/prev
+    // Helper: switch to a different video by index
+    fun switchTo(idx: Int) {
+        if (idx < 0 || idx >= target.allVideoIds.size) return
+        currentIndex = idx
+        currentVideoId = target.allVideoIds[idx]
+        currentPlayer?.release()
+        currentPlayer = buildPlayer(target.allVideoIds[idx])
+    }
+
+    // D-pad key handler using onPreviewKeyEvent — intercepts events BEFORE
+    // PlayerView (native Android View inside AndroidView) can consume them.
+    // This is critical: PlayerView captures D-pad events by default, preventing
+    // Compose's onKeyEvent from ever seeing them.
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onKeyEvent { event ->
-                val player = currentPlayer ?: return@onKeyEvent false
-                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+            .onPreviewKeyEvent { event ->
+                val player = currentPlayer ?: return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.DirectionLeft -> {
                         player.seekBack()
@@ -172,23 +185,11 @@ fun PlayerScreen(
                         true
                     }
                     Key.DirectionUp -> {
-                        val prevIdx = currentIndex - 1
-                        if (prevIdx >= 0) {
-                            currentIndex = prevIdx
-                            currentVideoId = target.allVideoIds[prevIdx]
-                            currentPlayer?.release()
-                            currentPlayer = buildPlayer(target.allVideoIds[prevIdx])
-                        }
+                        switchTo(currentIndex - 1)
                         true
                     }
                     Key.DirectionDown -> {
-                        val nextIdx = currentIndex + 1
-                        if (nextIdx < target.allVideoIds.size) {
-                            currentIndex = nextIdx
-                            currentVideoId = target.allVideoIds[nextIdx]
-                            currentPlayer?.release()
-                            currentPlayer = buildPlayer(target.allVideoIds[nextIdx])
-                        }
+                        switchTo(currentIndex + 1)
                         true
                     }
                     Key.Back -> {
@@ -213,9 +214,11 @@ fun PlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        useController = true
-                        setShowNextButton(false)
-                        setShowPreviousButton(false)
+                        // Disable PlayerView's own controller — we handle all
+                        // D-pad input ourselves via onPreviewKeyEvent above.
+                        // Keeping useController=false prevents PlayerView from
+                        // stealing focus and consuming key events.
+                        useController = false
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
