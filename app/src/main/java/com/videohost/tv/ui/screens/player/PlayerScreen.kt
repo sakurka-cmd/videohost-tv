@@ -46,11 +46,51 @@ fun PlayerScreen(
     fun buildPlayer(videoId: String): ExoPlayer {
         val baseUrl = kotlinx.coroutines.runBlocking { repo.getServerUrl() }
         val streamUrl = "$baseUrl/api/videos/$videoId/stream"
-        val player = ExoPlayer.Builder(context).build()
-        player.setMediaItem(MediaItem.fromUri(streamUrl))
+        val sessionCookie = kotlinx.coroutines.runBlocking { repo.getSessionCookie() }
+
+        // Build a DataSource.Factory that injects the vh_session cookie header.
+        // ExoPlayer doesn't share OkHttp cookies with our Retrofit client, so we
+        // need to attach the cookie manually on every media request.
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+            okhttp3.OkHttpClient.Builder().build()
+        ).apply {
+            setDefaultRequestProperties(mapOf(
+                "Cookie" to "vh_session=$sessionCookie",
+                "User-Agent" to "VideoHostTV/1.0 (Android TV)",
+            ))
+        }
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            context, httpDataSourceFactory
+        )
+
+        // Build MediaItem with a URL, the dataSourceFactory is used by the player
+        // for all HTTP requests (video + audio segments).
+        val mediaItem = MediaItem.Builder()
+            .setUri(streamUrl)
+            .setMimeType("video/mp4")
+            .build()
+
+        // Build a progressive media source (for non-HLS mp4 files)
+        val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+            dataSourceFactory
+        ).createMediaSource(mediaItem)
+
+        val player = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
+            )
+            .build()
+        player.setMediaSource(mediaSource)
         player.prepare()
         player.playWhenReady = true
         player.repeatMode = Player.REPEAT_MODE_OFF
+
+        // Log errors for debugging
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("VideoHostTV", "ExoPlayer error for $videoId", error)
+            }
+        })
 
         // Resume from saved position
         scope.launch {
