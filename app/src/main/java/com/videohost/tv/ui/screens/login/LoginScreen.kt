@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -30,6 +32,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.videohost.tv.R
 import com.videohost.tv.data.api.LoginRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import kotlinx.coroutines.launch
@@ -62,7 +66,18 @@ fun LoginScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(32.dp).width(400.dp),
         ) {
-            Text("UTube", color = Color.White, fontSize = 36.sp)
+            // Icon + title
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AsyncImage(
+                    model = R.mipmap.ic_launcher,
+                    contentDescription = "UTube",
+                    modifier = Modifier.size(48.dp),
+                )
+                Text("UTube", color = Color.White, fontSize = 36.sp)
+            }
             Text(
                 "Войдите в свой аккаунт",
                 color = Color.White.copy(alpha = 0.6f),

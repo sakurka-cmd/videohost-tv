@@ -191,3 +191,8 @@ MIT
 - YouTube publish date shown in video cards (when available).
 - Auto-refresh every 30 seconds (newly uploaded videos appear without restart).
 - Auto-hide controls after 5 seconds of inactivity during playback.
+
+### v1.5.0 — 2026-06-27
+
+**Changed:**
+- Custom icon (user-provided U1.png) used everywhere: app launcher icon (all densities), adaptive icon foreground, TV banner, login screen, home screen header.
