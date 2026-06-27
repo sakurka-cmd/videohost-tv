@@ -40,6 +40,8 @@ import coil.compose.AsyncImage
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.model.PlaylistFull
 import com.videohost.tv.data.model.VideoItem
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -54,7 +56,34 @@ fun HomeScreen(
     var continueWatching by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var refreshTrigger by remember { mutableStateOf(0) }
+    var baseUrl by remember { mutableStateOf("") }
 
+    // Load base URL once
+    LaunchedEffect(Unit) {
+        baseUrl = repo.serverUrlFlow.first()
+    }
+
+    // Auto-refresh every 30 seconds (so newly uploaded videos appear)
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30000)
+            refreshTrigger++
+        }
+    }
+
+    LaunchedEffect(refreshTrigger) {
+        if (refreshTrigger > 0) {
+            // Silent refresh — don't show loading indicator
+            try {
+                val api = repo.getApi()
+                playlists = api.listPlaylists()
+                allVideos = api.listVideos()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Initial load
     LaunchedEffect(Unit) {
         try {
             val api = repo.getApi()
@@ -147,6 +176,7 @@ fun HomeScreen(
                         if (continueWatching.isNotEmpty()) {
                             item {
                                 VideoRow(
+                                    baseUrl = baseUrl,
                                     title = "Продолжить просмотр",
                                     videos = continueWatching,
                                     onItemClick = { v ->
@@ -158,6 +188,7 @@ fun HomeScreen(
                         if (allVideos.isNotEmpty()) {
                             item {
                                 VideoRow(
+                                    baseUrl = baseUrl,
                                     title = "Недавно добавленные",
                                     videos = allVideos.take(20),
                                     onItemClick = { v ->
@@ -171,6 +202,7 @@ fun HomeScreen(
                             if (plVideos.isNotEmpty()) {
                                 item {
                                     VideoRow(
+                                    baseUrl = baseUrl,
                                         title = pl.name,
                                         videos = plVideos,
                                         onItemClick = { v ->
@@ -189,6 +221,7 @@ fun HomeScreen(
 
 @Composable
 private fun VideoRow(
+    baseUrl: String = "",
     title: String,
     videos: List<VideoItem>,
     onItemClick: (VideoItem) -> Unit,
@@ -210,6 +243,7 @@ private fun VideoRow(
                     video = v,
                     onClick = { onItemClick(v) },
                     modifier = Modifier.size(width = 200.dp, height = 130.dp),
+                    baseUrl = baseUrl,
                 )
             }
         }
@@ -221,6 +255,7 @@ private fun VideoCard(
     video: VideoItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    baseUrl: String = "",
 ) {
     Card(
         onClick = onClick,
@@ -231,8 +266,13 @@ private fun VideoCard(
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val thumbUrl = video.thumbnail?.let { thumb ->
-                if (thumb.startsWith("http")) thumb else null
+            // Use the thumbnail endpoint — it handles YouTube URL redirect,
+            // local file, and ffmpeg generation. More reliable than using
+            // the direct YouTube URL (which may be unreachable from the TV box).
+            val thumbUrl = if (baseUrl.isNotEmpty()) {
+                "$baseUrl/api/videos/${video.id}/thumbnail"
+            } else {
+                video.thumbnail?.takeIf { it.startsWith("http") }
             }
             if (thumbUrl != null) {
                 AsyncImage(
@@ -246,7 +286,7 @@ private fun VideoCard(
                     .fillMaxSize()
                     .background(Color(0xFF2F2F35)))
             }
-            // Title overlay at bottom
+            // Title + date overlay at bottom
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -254,14 +294,32 @@ private fun VideoCard(
                     .background(Color(0xCC000000))
                     .padding(8.dp),
             ) {
-                Text(
-                    video.title,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Column {
+                    Text(
+                        video.title,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    // Show YouTube publish date if available
+                    video.publishedAt?.takeIf { it.isNotEmpty() }?.let { dateStr ->
+                        Text(
+                            formatVideoDate(dateStr),
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+private fun formatVideoDate(iso: String): String {
+    return try {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale("ru"))
+        val date = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").parse(iso.take(19))
+        if (date != null) sdf.format(date) else ""
+    } catch (_: Exception) { "" }
 }

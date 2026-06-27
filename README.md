@@ -178,3 +178,16 @@ MIT
 - App not appearing in launcher — added `LAUNCHER` intent-filter in addition to `LEANBACK_LAUNCHER`.
 - D-pad not working during playback — `onPreviewKeyEvent` intercepts before PlayerView.
 - Mouse buttons not responding — `useController=true` restored (was disabled in v1.2).
+
+### v1.4.0 — 2026-06-27
+
+**Fixed:**
+- **Update without uninstall** — removed `applicationIdSuffix = ".debug"` so the package ID stays `com.videohost.tv` across versions. New APK installs update the old one in place.
+- **D-pad + mouse simultaneously** — built custom Compose player overlay (seek bar, play/pause, speed indicator) with `useController=false` on PlayerView. D-pad works via `onPreviewKeyEvent`, mouse/touch works via Compose clickable modifiers.
+- **Thumbnails** — now uses `/api/videos/:id/thumbnail` endpoint instead of direct YouTube URL. Handles YouTube redirect, local file, and ffmpeg generation.
+- **Speed set** — 0.5x, 1.0x, 1.25x, 1.5x, 1.75x, 2.0x (0.25/0.75 removed). Changed via Menu key or clickable speed indicator.
+
+**Added:**
+- YouTube publish date shown in video cards (when available).
+- Auto-refresh every 30 seconds (newly uploaded videos appear without restart).
+- Auto-hide controls after 5 seconds of inactivity during playback.

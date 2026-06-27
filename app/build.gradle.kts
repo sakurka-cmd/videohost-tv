@@ -22,8 +22,8 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            // No applicationIdSuffix — so installing a new APK over the old one
+            // updates in place without requiring uninstall.
         }
     }
 

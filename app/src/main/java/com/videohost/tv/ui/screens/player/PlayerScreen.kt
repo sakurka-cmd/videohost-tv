@@ -1,15 +1,25 @@
 package com.videohost.tv.ui.screens.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,6 +46,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+// Available playback speeds: 0.5, 1.0, 1.25, 1.5, 1.75, 2.0
+// (0.25 and 0.75 removed per user request, 1.75 added)
+val PLAYBACK_SPEEDS = floatArrayOf(0.5f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+
 @Composable
 fun PlayerScreen(
     repo: VideoHostRepository,
@@ -48,29 +62,58 @@ fun PlayerScreen(
     var currentIndex by remember { mutableStateOf(target.allVideoIds.indexOf(target.videoId).coerceAtLeast(0)) }
     var currentVideoId by remember { mutableStateOf(target.videoId) }
 
-    // Available playback speeds: 0.5, 1.0, 1.25, 1.5, 1.75, 2.0
-    // (0.25 and 0.75 removed per user request, 1.75 added)
-    val speeds = remember { floatArrayOf(0.5f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f) }
+    // Playback speed
     var speedIdx by remember { mutableStateOf(1) }  // default 1.0x
-    var showSpeedMenu by remember { mutableStateOf(false) }
-    var speedMenuDismissAt by remember { mutableStateOf(0L) }
+    var speedOverlayVisible by remember { mutableStateOf(false) }
 
-    // Read autoplay setting (default true)
+    // Controller visibility (auto-hide after 5s of inactivity)
+    var controlsVisible by remember { mutableStateOf(true) }
+    var lastInteraction by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    // Player state for UI
+    var isPlaying by remember { mutableStateOf(false) }
+    var positionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+
+    // Read settings
     val autoplayNext = remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         autoplayNext.value = repo.autoplayNextFlow.first()
-        // Load saved playback speed for this playlist
         val savedSpeed = repo.getPlaybackSpeed(target.playlistId)
-        val idx = speeds.indexOfFirst { kotlin.math.abs(it - savedSpeed) < 0.01f }
+        val idx = PLAYBACK_SPEEDS.indexOfFirst { kotlin.math.abs(it - savedSpeed) < 0.01f }
         if (idx >= 0) speedIdx = idx
     }
 
-    // Apply speed to player whenever it changes
-    LaunchedEffect(speedIdx, currentPlayer) {
-        currentPlayer?.playbackParameters = currentPlayer!!.playbackParameters.withSpeed(speeds[speedIdx])
+    // Auto-hide controls
+    LaunchedEffect(lastInteraction) {
+        while (true) {
+            delay(1000)
+            if (System.currentTimeMillis() - lastInteraction > 5000 && isPlaying) {
+                controlsVisible = false
+                speedOverlayVisible = false
+            }
+        }
     }
 
-    // Build the player for a given video id
+    // Position updater
+    LaunchedEffect(currentPlayer) {
+        while (true) {
+            delay(500)
+            currentPlayer?.let { p ->
+                positionMs = p.currentPosition
+                durationMs = p.duration.takeIf { it > 0 } ?: 0L
+                isPlaying = p.isPlaying
+            }
+        }
+    }
+
+    // Apply speed to player
+    LaunchedEffect(speedIdx, currentPlayer) {
+        currentPlayer?.let { p ->
+            p.playbackParameters = p.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx])
+        }
+    }
+
     fun buildPlayer(videoId: String): ExoPlayer {
         val baseUrl = kotlinx.coroutines.runBlocking { repo.getServerUrl() }
         val streamUrl = "$baseUrl/api/videos/$videoId/stream"
@@ -81,18 +124,14 @@ fun PlayerScreen(
         ).apply {
             setDefaultRequestProperties(mapOf(
                 "Cookie" to "vh_session=$sessionCookie",
-                "User-Agent" to "VideoHostTV/1.0 (Android TV)",
+                "User-Agent" to "UTube/1.3 (Android TV)",
             ))
         }
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
             context, httpDataSourceFactory
         )
 
-        val mediaItem = MediaItem.Builder()
-            .setUri(streamUrl)
-            .setMimeType("video/mp4")
-            .build()
-
+        val mediaItem = MediaItem.Builder().setUri(streamUrl).setMimeType("video/mp4").build()
         val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
             dataSourceFactory
         ).createMediaSource(mediaItem)
@@ -106,20 +145,17 @@ fun PlayerScreen(
         player.prepare()
         player.playWhenReady = true
         player.repeatMode = Player.REPEAT_MODE_OFF
+        // Apply saved speed immediately
+        player.playbackParameters = player.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx])
 
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                android.util.Log.e("VideoHostTV", "ExoPlayer error for $videoId", error)
+                android.util.Log.e("UTube", "ExoPlayer error for $videoId", error)
             }
-
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     scope.launch {
-                        try {
-                            val api = repo.getApi()
-                            api.deleteProgress(videoId)
-                        } catch (_: Exception) {}
-                        // Auto-play next if autoplay is enabled and there's a next video
+                        try { repo.getApi().deleteProgress(videoId) } catch (_: Exception) {}
                         if (autoplayNext.value) {
                             val nextIdx = currentIndex + 1
                             if (nextIdx < target.allVideoIds.size) {
@@ -127,13 +163,8 @@ fun PlayerScreen(
                                 currentVideoId = target.allVideoIds[nextIdx]
                                 currentPlayer?.release()
                                 currentPlayer = buildPlayer(target.allVideoIds[nextIdx])
-                            } else {
-                                onClose()
-                            }
-                        } else {
-                            // Autoplay disabled — just stop, stay on current video
-                            player.playWhenReady = false
-                        }
+                            } else { onClose() }
+                        } else { player.playWhenReady = false }
                     }
                 }
             }
@@ -142,38 +173,27 @@ fun PlayerScreen(
         // Resume from saved position
         scope.launch {
             try {
-                val api = repo.getApi()
-                val progress = api.getProgress(videoId)
-                if (progress.positionSec > 5f) {
-                    player.seekTo((progress.positionSec * 1000).toLong())
-                }
+                val progress = repo.getApi().getProgress(videoId)
+                if (progress.positionSec > 5f) player.seekTo((progress.positionSec * 1000).toLong())
             } catch (_: Exception) {}
         }
 
-        // Periodic save of progress (every 5s)
+        // Periodic progress save
         scope.launch {
             while (true) {
                 delay(5000)
-                if (!player.isPlaying && player.playbackState == Player.STATE_ENDED) break
+                if (player.playbackState == Player.STATE_ENDED) break
                 val pos = player.currentPosition / 1000f
                 val dur = player.duration.takeIf { it > 0 }?.let { it / 1000f }
-                try {
-                    val api = repo.getApi()
-                    api.putProgress(videoId, WatchProgressUpdate(pos, dur))
-                } catch (_: Exception) {}
+                try { repo.getApi().putProgress(videoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}
             }
         }
 
         return player
     }
 
-    // Build initial player
-    LaunchedEffect(Unit) {
-        val p = buildPlayer(currentVideoId)
-        currentPlayer = p
-    }
+    LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
 
-    // Helper: switch to a different video by index
     fun switchTo(idx: Int) {
         if (idx < 0 || idx >= target.allVideoIds.size) return
         currentIndex = idx
@@ -182,59 +202,67 @@ fun PlayerScreen(
         currentPlayer = buildPlayer(target.allVideoIds[idx])
     }
 
-    // D-pad key handler using onPreviewKeyEvent — intercepts events BEFORE
-    // PlayerView (native Android View inside AndroidView) can consume them.
-    // This is critical: PlayerView captures D-pad events by default, preventing
-    // Compose's onKeyEvent from ever seeing them.
+    fun togglePlayPause() {
+        currentPlayer?.let { it.playWhenReady = !it.playWhenReady }
+        lastInteraction = System.currentTimeMillis()
+        controlsVisible = true
+    }
+
+    fun cycleSpeed() {
+        speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size
+        scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }
+        speedOverlayVisible = true
+        lastInteraction = System.currentTimeMillis()
+    }
+
+    fun seekBy(deltaSec: Int) {
+        currentPlayer?.let { p ->
+            val newPos = (p.currentPosition + deltaSec * 1000).coerceIn(0, p.duration.coerceAtLeast(0))
+            p.seekTo(newPos)
+        }
+        lastInteraction = System.currentTimeMillis()
+        controlsVisible = true
+    }
+
+    fun fmt(ms: Long): String {
+        if (ms <= 0) return "0:00"
+        val s = ms / 1000
+        return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            // Click to toggle controls (mouse/touch)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                controlsVisible = !controlsVisible
+                lastInteraction = System.currentTimeMillis()
+            }
+            // D-pad handler — intercepts BEFORE PlayerView
             .onPreviewKeyEvent { event ->
-                val player = currentPlayer ?: return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
+                lastInteraction = System.currentTimeMillis()
+                controlsVisible = true
                 when (event.key) {
-                    Key.DirectionLeft -> {
-                        player.seekBack()
-                        true
-                    }
-                    Key.DirectionRight -> {
-                        player.seekForward()
-                        true
-                    }
-                    Key.DirectionCenter, Key.Enter -> {
-                        player.playWhenReady = !player.playWhenReady
-                        true
-                    }
-                    Key.DirectionUp -> {
-                        switchTo(currentIndex - 1)
-                        true
-                    }
-                    Key.DirectionDown -> {
-                        switchTo(currentIndex + 1)
-                        true
-                    }
-                    Key.Menu -> {
-                        // Cycle to next speed
-                        speedIdx = (speedIdx + 1) % speeds.size
-                        // Persist for this playlist
-                        scope.launch {
-                            repo.setPlaybackSpeed(target.playlistId, speeds[speedIdx])
-                        }
-                        // Show speed indicator briefly
-                        showSpeedMenu = true
-                        speedMenuDismissAt = System.currentTimeMillis() + 2000
-                        true
-                    }
+                    Key.DirectionLeft -> { seekBy(-10); true }
+                    Key.DirectionRight -> { seekBy(10); true }
+                    Key.DirectionCenter, Key.Enter -> { togglePlayPause(); true }
+                    Key.DirectionUp -> { switchTo(currentIndex - 1); true }
+                    Key.DirectionDown -> { switchTo(currentIndex + 1); true }
+                    Key.Menu -> { cycleSpeed(); true }
                     Key.Back -> {
                         scope.launch {
                             try {
                                 val api = repo.getApi()
-                                val pos = player.currentPosition / 1000f
-                                val dur = player.duration.takeIf { it > 0 }?.let { it / 1000f }
+                                val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f
+                                val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f)
                                 api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur))
                             } catch (_: Exception) {}
-                            player.release()
+                            currentPlayer?.release()
                             onClose()
                         }
                         true
@@ -243,50 +271,92 @@ fun PlayerScreen(
                 }
             },
     ) {
+        // PlayerView — NO controller (we handle everything in Compose)
         currentPlayer?.let { player ->
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        // Keep controller enabled so mouse/touch controls work
-                        // (seek bar, play/pause button). D-pad events are still
-                        // intercepted by onPreviewKeyEvent above before they
-                        // reach PlayerView.
-                        useController = true
-                        setShowNextButton(false)
-                        setShowPreviousButton(false)
+                        useController = false
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
         }
 
-        // Speed indicator overlay (shows briefly when speed changes via Menu key)
-        if (showSpeedMenu) {
-            // Auto-dismiss after 2 seconds
-            LaunchedEffect(speedMenuDismissAt) {
-                if (speedMenuDismissAt > 0) {
-                    kotlinx.coroutines.delay(2000)
-                    showSpeedMenu = false
-                }
-            }
-            androidx.compose.foundation.layout.Box(
+        // Custom controls overlay (visible when controlsVisible)
+        if (controlsVisible) {
+            // Bottom bar: seek bar + time + speed
+            Column(
                 modifier = Modifier
-                    .align(androidx.compose.ui.Alignment.TopCenter)
-                    .padding(16.dp)
-                    .background(Color(0xCC000000), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color(0xCC000000))
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("${fmt(positionMs)}", color = Color.White, fontSize = 12.sp)
+                    Text(
+                        if (isPlaying) "⏸" else "▶",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { togglePlayPause() }
+                    )
+                    Text(
+                        "${PLAYBACK_SPEEDS[speedIdx]}x",
+                        color = if (speedIdx > 1) Color(0xFFEF4444) else Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { cycleSpeed() }
+                    )
+                    Text("${fmt(durationMs)}", color = Color.White, fontSize = 12.sp)
+                }
+                // Seek bar
+                if (durationMs > 0) {
+                    LinearProgressIndicator(
+                        progress = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .padding(top = 4.dp),
+                        color = Color(0xFFEF4444),
+                        trackColor = Color.White.copy(alpha = 0.3f),
+                    )
+                }
+            }
+        }
+
+        // Speed overlay (briefly shown when speed changes)
+        if (speedOverlayVisible) {
+            LaunchedEffect(speedOverlayVisible) {
+                delay(2000)
+                speedOverlayVisible = false
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp)
+                    .background(Color(0xCC000000), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+            ) {
                 Text(
-                    "Скорость: ${speeds[speedIdx]}x",
+                    "Скорость: ${PLAYBACK_SPEEDS[speedIdx]}x",
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = 18.sp,
                 )
             }
         }
     }
 
-    // Cleanup on dispose
     DisposableEffect(Unit) {
         onDispose {
             currentPlayer?.release()
