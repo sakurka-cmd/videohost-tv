@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.videohost.tv.data.api.LoginRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import kotlinx.coroutines.launch
 
@@ -122,9 +123,30 @@ fun LoginScreen(
                     scope.launch {
                         try {
                             val api = repo.getApi()
-                            api.login(username, password)
+                            api.login(LoginRequest(username, password))
                             loading = false
                             onLoggedIn()
+                        } catch (e: retrofit2.HttpException) {
+                            loading = false
+                            val code = e.code()
+                            val serverMsg = try {
+                                e.response()?.errorBody()?.string()
+                            } catch (_: Exception) { null }
+                            error = when (code) {
+                                401 -> "Неверный логин или пароль"
+                                403 -> "Аккаунт не одобрен администратором"
+                                500 -> "Внутренняя ошибка сервера (500). Проверьте, что адрес сервера указан верно."
+                                else -> "Ошибка входа ($code): ${serverMsg ?: e.message()}"
+                            }
+                        } catch (e: java.net.ConnectException) {
+                            loading = false
+                            error = "Не удалось подключиться к серверу. Проверьте адрес в настройках."
+                        } catch (e: java.net.SocketTimeoutException) {
+                            loading = false
+                            error = "Таймаут подключения. Сервер недоступен или указан неверный адрес."
+                        } catch (e: java.net.UnknownHostException) {
+                            loading = false
+                            error = "Сервер не найден. Проверьте адрес в настройках."
                         } catch (e: Exception) {
                             loading = false
                             error = "Ошибка входа: ${e.message ?: "неизвестная"}"
