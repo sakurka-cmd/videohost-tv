@@ -24,6 +24,9 @@
             android:exported="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden|uiMode"
             android:launchMode="singleTask"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:banner="@drawable/app_banner"
             android:theme="@style/Theme.VideoHostTV">
 
             <intent-filter>
