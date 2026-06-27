@@ -248,7 +248,13 @@ fun PlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        useController = false
+                        // Keep controller enabled so mouse/touch controls work
+                        // (seek bar, play/pause button). D-pad events are still
+                        // intercepted by onPreviewKeyEvent above before they
+                        // reach PlayerView.
+                        useController = true
+                        setShowNextButton(false)
+                        setShowPreviousButton(false)
                     }
                 },
                 modifier = Modifier.fillMaxSize(),

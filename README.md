@@ -170,3 +170,11 @@ MIT
 **Added:**
 - **Playback speed persisted per playlist**. Speed is stored in DataStore with key `speed_<playlistId>`. When you open a video from a playlist, the saved speed is automatically applied. Change speed with the Menu button on your remote.
 - Speed indicator overlay (shows current speed for 2 seconds when changed via Menu key).
+
+### v1.3.0 — 2026-06-27
+
+**Fixed:**
+- Settings (server URL, login, autoplay, playback speed) now survive reinstalls — added `fullBackupContent` rules for DataStore.
+- App not appearing in launcher — added `LAUNCHER` intent-filter in addition to `LEANBACK_LAUNCHER`.
+- D-pad not working during playback — `onPreviewKeyEvent` intercepts before PlayerView.
+- Mouse buttons not responding — `useController=true` restored (was disabled in v1.2).
