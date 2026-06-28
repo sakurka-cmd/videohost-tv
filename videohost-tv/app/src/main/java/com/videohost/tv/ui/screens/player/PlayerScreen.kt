@@ -122,7 +122,11 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         }
     ) {
         currentPlayer?.let { player ->
-            AndroidView(factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = false } }, modifier = Modifier.fillMaxSize())
+            AndroidView(
+                factory = { ctx -> PlayerView(ctx).apply { useController = false } },
+                update = { playerView -> playerView.player = player },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         if (controlsVisible) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000)).padding(horizontal = 16.dp, vertical = 8.dp)) {
