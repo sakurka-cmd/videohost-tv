@@ -59,9 +59,11 @@ fun HomeScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var sortDesc by remember { mutableStateOf(false) }  // false=old first, true=new first
+    var baseUrl by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         try {
+            baseUrl = repo.serverUrlFlow.first()
             val api = repo.getApi()
             val me = api.me()
             if (!me.isApproved) {
@@ -168,6 +170,7 @@ fun HomeScreen(
                                 VideoRow(
                                     title = "Продолжить просмотр",
                                     videos = continueWatching,
+                                    baseUrl = baseUrl,
                                     onItemClick = { v ->
                                         onPlayVideo(null, v.id, continueWatching.map { it.id })
                                     },
@@ -179,6 +182,7 @@ fun HomeScreen(
                                 VideoRow(
                                     title = "Недавно добавленные",
                                     videos = allVideos.take(20),
+                                    baseUrl = baseUrl,
                                     onItemClick = { v ->
                                         onPlayVideo(null, v.id, allVideos.map { it.id })
                                     },
@@ -196,7 +200,8 @@ fun HomeScreen(
                                     VideoRow(
                                         title = pl.name,
                                         videos = plVideos,
-                                        onItemClick = { v ->
+                                        baseUrl = baseUrl,
+                                    onItemClick = { v ->
                                             onPlayVideo(pl.id, v.id, plVideos.map { it.id })
                                         },
                                     )
@@ -215,6 +220,7 @@ private fun VideoRow(
     title: String,
     videos: List<VideoItem>,
     onItemClick: (VideoItem) -> Unit,
+    baseUrl: String = "",
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -233,6 +239,7 @@ private fun VideoRow(
                     video = v,
                     onClick = { onItemClick(v) },
                     modifier = Modifier.size(width = 200.dp, height = 130.dp),
+                    baseUrl = baseUrl,
                 )
             }
         }
@@ -244,6 +251,7 @@ private fun VideoCard(
     video: VideoItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    baseUrl: String = "",
 ) {
     Card(
         onClick = onClick,
@@ -254,8 +262,11 @@ private fun VideoCard(
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val thumbUrl = video.thumbnail?.let { thumb ->
-                if (thumb.startsWith("http")) thumb else null
+            // Use thumbnail endpoint — handles YouTube redirect + local + ffmpeg
+            val thumbUrl = if (baseUrl.isNotEmpty()) {
+                "$baseUrl/api/videos/${video.id}/thumbnail"
+            } else {
+                video.thumbnail?.takeIf { it.startsWith("http") }
             }
             if (thumbUrl != null) {
                 AsyncImage(
@@ -269,8 +280,8 @@ private fun VideoCard(
                     .fillMaxSize()
                     .background(Color(0xFF2F2F35)))
             }
-            // Title overlay at bottom
-            Box(
+            // Title + date overlay at bottom
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
@@ -284,7 +295,24 @@ private fun VideoCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // YouTube publish date
+                video.publishedAt?.takeIf { it.isNotEmpty() }?.let { dateStr ->
+                    Text(
+                        text = formatPubDate(dateStr),
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 10.sp,
+                    )
+                }
             }
         }
     }
+}
+
+private fun formatPubDate(iso: String): String {
+    return try {
+        val input = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+        val output = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale("ru"))
+        val date = input.parse(iso.take(19))
+        if (date != null) output.format(date) else ""
+    } catch (_: Exception) { "" }
 }
