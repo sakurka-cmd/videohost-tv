@@ -58,6 +58,7 @@ fun HomeScreen(
     var continueWatching by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var sortDesc by remember { mutableStateOf(false) }  // false=old first, true=new first
 
     LaunchedEffect(Unit) {
         try {
@@ -145,6 +146,17 @@ fun HomeScreen(
                         ) {
                             Text("Настройки")
                         }
+                        // Sort direction toggle — to the LEFT of Settings button
+                        Button(
+                            onClick = { sortDesc = !sortDesc },
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 100.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1F1F23),
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Text(if (sortDesc) "↓ Новые" else "↑ Старые", fontSize = 13.sp)
+                        }
                     }
 
                     LazyColumn(
@@ -174,7 +186,11 @@ fun HomeScreen(
                             }
                         }
                         for (pl in playlists) {
-                            val plVideos = pl.items.sortedBy { it.order }.map { it.video }
+                            val plVideos = if (sortDesc) {
+                                pl.items.sortedByDescending { it.order }.map { it.video }
+                            } else {
+                                pl.items.sortedBy { it.order }.map { it.video }
+                            }
                             if (plVideos.isNotEmpty()) {
                                 item {
                                     VideoRow(
