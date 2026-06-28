@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -32,6 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.videohost.tv.data.api.VideoHostRepository
 import kotlinx.coroutines.launch
+import coil.compose.AsyncImage
+import com.videohost.tv.R
+import com.videohost.tv.data.api.LoginRequest
 
 @Composable
 fun LoginScreen(
@@ -61,7 +66,10 @@ fun LoginScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(32.dp).width(400.dp),
         ) {
-            Text("VideoHost", color = Color.White, fontSize = 36.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AsyncImage(model = R.mipmap.ic_launcher, contentDescription = "UTube", modifier = Modifier.size(48.dp))
+                Text("UTube", color = Color.White, fontSize = 36.sp)
+            }
             Text(
                 "Войдите в свой аккаунт",
                 color = Color.White.copy(alpha = 0.6f),
@@ -122,12 +130,18 @@ fun LoginScreen(
                     scope.launch {
                         try {
                             val api = repo.getApi()
-                            api.login(username, password)
+                            api.login(LoginRequest(username, password))
                             loading = false
                             onLoggedIn()
                         } catch (e: Exception) {
                             loading = false
-                            error = "Ошибка входа: ${e.message ?: "неизвестная"}"
+                            error = when (e) {
+                                is retrofit2.HttpException -> when (e.code()) { 401 -> "Неверный логин или пароль"; 403 -> "Аккаунт не одобрен"; 500 -> "Ошибка сервера. Проверьте адрес."; else -> "Ошибка (${e.code()})" }
+                                is java.net.ConnectException -> "Не удалось подключиться к серверу"
+                                is java.net.SocketTimeoutException -> "Таймаут подключения"
+                                is java.net.UnknownHostException -> "Сервер не найден"
+                                else -> "Ошибка: ${e.message ?: "неизвестная"}"
+                            }
                         }
                     }
                 },

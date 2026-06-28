@@ -5,6 +5,6 @@
     <color name="black">#FF000000</color>
     <color name="red_accent">#FFEF4444</color>
     <color name="white">#FFFFFFFF</color>
-    <string name="app_name">VideoHost TV</string>
+    <string name="app_name">UTube</string>
     <style name="Theme.VideoHostTV" parent="android:Theme.Material.NoActionBar"/>
 </resources>

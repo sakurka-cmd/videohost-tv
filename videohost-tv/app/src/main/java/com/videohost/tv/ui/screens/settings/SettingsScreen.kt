@@ -59,14 +59,14 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(32.dp).width(500.dp),
         ) {
-            Text("Настройки VideoHost TV", color = Color.White, fontSize = 28.sp)
+            Text("Настройки UTube", color = Color.White, fontSize = 28.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("Адрес VideoHost") },
-                placeholder = { Text("http://158.46.44.74:3002") },
+                label = { Text("Адрес сервера UTube") },
+                placeholder = { Text("http://your-server:3002") },
                 singleLine = true,
                 modifier = Modifier
                     .width(500.dp)

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,9 +38,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.videohost.tv.R
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.model.PlaylistFull
 import com.videohost.tv.data.model.VideoItem
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -122,12 +126,15 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .padding(16.dp),
                     ) {
-                        Text(
-                            "VideoHost",
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AsyncImage(model = R.mipmap.ic_launcher, contentDescription = "UTube", modifier = Modifier.size(28.dp))
+                            Text(
+                                "UTube",
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         Button(
                             onClick = onOpenSettings,
                             modifier = Modifier.align(Alignment.CenterEnd),

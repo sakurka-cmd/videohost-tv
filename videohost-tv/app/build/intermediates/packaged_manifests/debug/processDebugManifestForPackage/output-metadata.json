@@ -4,15 +4,15 @@
     "type": "PACKAGED_MANIFESTS",
     "kind": "Directory"
   },
-  "applicationId": "com.videohost.tv.debug",
+  "applicationId": "com.videohost.tv",
   "variantName": "debug",
   "elements": [
     {
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 1,
-      "versionName": "1.0-debug",
+      "versionCode": 5,
+      "versionName": "1.5",
       "outputFile": "AndroidManifest.xml"
     }
   ],

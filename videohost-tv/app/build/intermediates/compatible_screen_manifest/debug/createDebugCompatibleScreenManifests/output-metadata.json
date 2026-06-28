@@ -4,7 +4,7 @@
     "type": "COMPATIBLE_SCREEN_MANIFEST",
     "kind": "Directory"
   },
-  "applicationId": "com.videohost.tv.debug",
+  "applicationId": "com.videohost.tv",
   "variantName": "debug",
   "elements": []
 }

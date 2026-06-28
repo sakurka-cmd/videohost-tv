@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-35:12
-INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-35:12
-INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-35:12
-INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-35:12
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-38:12
+INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-38:12
+INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-38:12
+INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:1-38:12
 MERGED from [androidx.navigation:navigation-common:2.7.7] /home/z/.gradle/caches/transforms-4/0329f0d6fcc1f8c290cc97cb6a70038d/transformed/navigation-common-2.7.7/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.navigation:navigation-runtime:2.7.7] /home/z/.gradle/caches/transforms-4/e178d942116a602d479e4a9a079a2920/transformed/navigation-runtime-2.7.7/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.navigation:navigation-common-ktx:2.7.7] /home/z/.gradle/caches/transforms-4/9f06543dcb7ff47db475f30815807596/transformed/navigation-common-ktx-2.7.7/AndroidManifest.xml:2:1-7:12
@@ -16,9 +16,10 @@ MERGED from [io.coil-kt:coil-compose-base:2.6.0] /home/z/.gradle/caches/transfor
 MERGED from [io.coil-kt:coil:2.6.0] /home/z/.gradle/caches/transforms-4/92cf752053e970cf5bd7edfd328b4b6b/transformed/coil-2.6.0/AndroidManifest.xml:2:1-7:12
 MERGED from [io.coil-kt:coil-base:2.6.0] /home/z/.gradle/caches/transforms-4/38fc1e5c48ca18859675196c34049850/transformed/coil-base-2.6.0/AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.media3:media3-ui:1.3.1] /home/z/.gradle/caches/transforms-4/10ff50ad9980a06b2f94bc27f5b7358d/transformed/media3-ui-1.3.1/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.media3:media3-datasource-okhttp:1.3.1] /home/z/.gradle/caches/transforms-4/fe1f3a922e73ab98931fc6505b8d7b8a/transformed/media3-datasource-okhttp-1.3.1/AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.media3:media3-datasource:1.3.1] /home/z/.gradle/caches/transforms-4/a259f8218904a41cc48305a22439e47f/transformed/media3-datasource-1.3.1/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-extractor:1.3.1] /home/z/.gradle/caches/transforms-4/eacb0eba5af96b83c4093fcc10df878e/transformed/media3-extractor-1.3.1/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-container:1.3.1] /home/z/.gradle/caches/transforms-4/958531bd960ae6eaa51983717b4e2b0d/transformed/media3-container-1.3.1/AndroidManifest.xml:17:1-22:12
-MERGED from [androidx.media3:media3-datasource:1.3.1] /home/z/.gradle/caches/transforms-4/a259f8218904a41cc48305a22439e47f/transformed/media3-datasource-1.3.1/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-decoder:1.3.1] /home/z/.gradle/caches/transforms-4/dca416893a4cff0c52dbc7684e6d5ba3/transformed/media3-decoder-1.3.1/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-database:1.3.1] /home/z/.gradle/caches/transforms-4/af8cc52f638cee7a328f475ab60e5d88/transformed/media3-database-1.3.1/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-common:1.3.1] /home/z/.gradle/caches/transforms-4/f6bf429292e4fddb8b81df8167281c0a/transformed/media3-common-1.3.1/AndroidManifest.xml:17:1-24:12
@@ -89,32 +90,32 @@ MERGED from [androidx.arch.core:core-runtime:2.2.0] /home/z/.gradle/caches/trans
 	xmlns:android
 		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:2:11-69
 uses-permission#android.permission.INTERNET
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:5:5-67
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:4:5-67
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:5:22-64
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:4:22-64
 uses-permission#android.permission.ACCESS_NETWORK_STATE
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:6:5-79
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:5:5-79
 MERGED from [androidx.media3:media3-common:1.3.1] /home/z/.gradle/caches/transforms-4/f6bf429292e4fddb8b81df8167281c0a/transformed/media3-common-1.3.1/AndroidManifest.xml:22:5-79
 MERGED from [androidx.media3:media3-common:1.3.1] /home/z/.gradle/caches/transforms-4/f6bf429292e4fddb8b81df8167281c0a/transformed/media3-common-1.3.1/AndroidManifest.xml:22:5-79
 MERGED from [androidx.media3:media3-exoplayer:1.3.1] /home/z/.gradle/caches/transforms-4/5a771444fe0d26021fc99398fc16bff3/transformed/media3-exoplayer-1.3.1/AndroidManifest.xml:22:5-79
 MERGED from [androidx.media3:media3-exoplayer:1.3.1] /home/z/.gradle/caches/transforms-4/5a771444fe0d26021fc99398fc16bff3/transformed/media3-exoplayer-1.3.1/AndroidManifest.xml:22:5-79
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:6:22-76
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:5:22-76
 uses-feature#android.software.leanback
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:8:5-87
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:6:5-87
 	android:required
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:8:60-84
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:6:60-84
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:8:19-59
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:6:19-59
 uses-feature#android.hardware.touchscreen
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:9:5-90
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:7:5-90
 	android:required
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:9:63-87
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:7:63-87
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:9:19-62
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:7:19-62
 application
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:11:5-34:19
-INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:11:5-34:19
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:8:5-37:19
+INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:8:5-37:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.6.8] /home/z/.gradle/caches/transforms-4/ac82aa1322514c92fd6cb77c08de0943/transformed/ui-tooling-release/AndroidManifest.xml:22:5-26:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.6.8] /home/z/.gradle/caches/transforms-4/ac82aa1322514c92fd6cb77c08de0943/transformed/ui-tooling-release/AndroidManifest.xml:22:5-26:19
 MERGED from [androidx.emoji2:emoji2:1.3.0] /home/z/.gradle/caches/transforms-4/84424870af9d25082f1ad6a4bd72ed3f/transformed/emoji2-1.3.0/AndroidManifest.xml:23:5-33:19
@@ -134,45 +135,59 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] /home/z/.gr
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:15:9-35
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:13:9-35
 	android:label
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:14:9-41
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:12:9-41
+	android:fullBackupContent
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:10:9-54
 	tools:targetApi
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:20:9-29
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:18:9-29
 	android:icon
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:13:9-43
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:11:9-43
 	android:allowBackup
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:12:9-35
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:9:9-35
 	android:banner
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:19:9-46
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:17:9-46
 	android:theme
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:16:9-49
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:14:9-49
 	android:networkSecurityConfig
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:18:9-69
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:16:9-69
 	android:usesCleartextTraffic
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:17:9-44
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:15:9-44
 activity#com.videohost.tv.MainActivity
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:22:9-33:20
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:19:9-36:20
+	android:label
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:25:13-45
 	android:launchMode
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:26:13-44
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:23:13-44
 	android:exported
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:24:13-36
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:21:13-36
 	android:configChanges
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:25:13-113
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:22:13-113
+	android:icon
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:24:13-47
+	android:banner
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:26:13-50
 	android:theme
 		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:27:13-53
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:23:13-41
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:20:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LEANBACK_LAUNCHER
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:29:13-32:29
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:28:13-31:29
 action#android.intent.action.MAIN
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:30:17-69
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:29:17-69
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:30:25-66
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:29:25-66
 category#android.intent.category.LEANBACK_LAUNCHER
-ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:31:17-86
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:30:17-86
 	android:name
-		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:31:27-83
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:30:27-83
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:32:13-35:29
+category#android.intent.category.LAUNCHER
+ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:34:17-77
+	android:name
+		ADDED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml:34:27-74
 uses-sdk
 INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /home/z/my-project/videohost-tv/app/src/main/AndroidManifest.xml
@@ -201,12 +216,14 @@ MERGED from [io.coil-kt:coil-base:2.6.0] /home/z/.gradle/caches/transforms-4/38f
 MERGED from [io.coil-kt:coil-base:2.6.0] /home/z/.gradle/caches/transforms-4/38fc1e5c48ca18859675196c34049850/transformed/coil-base-2.6.0/AndroidManifest.xml:5:5-44
 MERGED from [androidx.media3:media3-ui:1.3.1] /home/z/.gradle/caches/transforms-4/10ff50ad9980a06b2f94bc27f5b7358d/transformed/media3-ui-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-ui:1.3.1] /home/z/.gradle/caches/transforms-4/10ff50ad9980a06b2f94bc27f5b7358d/transformed/media3-ui-1.3.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.media3:media3-datasource-okhttp:1.3.1] /home/z/.gradle/caches/transforms-4/fe1f3a922e73ab98931fc6505b8d7b8a/transformed/media3-datasource-okhttp-1.3.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.media3:media3-datasource-okhttp:1.3.1] /home/z/.gradle/caches/transforms-4/fe1f3a922e73ab98931fc6505b8d7b8a/transformed/media3-datasource-okhttp-1.3.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.media3:media3-datasource:1.3.1] /home/z/.gradle/caches/transforms-4/a259f8218904a41cc48305a22439e47f/transformed/media3-datasource-1.3.1/AndroidManifest.xml:20:5-44
+MERGED from [androidx.media3:media3-datasource:1.3.1] /home/z/.gradle/caches/transforms-4/a259f8218904a41cc48305a22439e47f/transformed/media3-datasource-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-extractor:1.3.1] /home/z/.gradle/caches/transforms-4/eacb0eba5af96b83c4093fcc10df878e/transformed/media3-extractor-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-extractor:1.3.1] /home/z/.gradle/caches/transforms-4/eacb0eba5af96b83c4093fcc10df878e/transformed/media3-extractor-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-container:1.3.1] /home/z/.gradle/caches/transforms-4/958531bd960ae6eaa51983717b4e2b0d/transformed/media3-container-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-container:1.3.1] /home/z/.gradle/caches/transforms-4/958531bd960ae6eaa51983717b4e2b0d/transformed/media3-container-1.3.1/AndroidManifest.xml:20:5-44
-MERGED from [androidx.media3:media3-datasource:1.3.1] /home/z/.gradle/caches/transforms-4/a259f8218904a41cc48305a22439e47f/transformed/media3-datasource-1.3.1/AndroidManifest.xml:20:5-44
-MERGED from [androidx.media3:media3-datasource:1.3.1] /home/z/.gradle/caches/transforms-4/a259f8218904a41cc48305a22439e47f/transformed/media3-datasource-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-decoder:1.3.1] /home/z/.gradle/caches/transforms-4/dca416893a4cff0c52dbc7684e6d5ba3/transformed/media3-decoder-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-decoder:1.3.1] /home/z/.gradle/caches/transforms-4/dca416893a4cff0c52dbc7684e6d5ba3/transformed/media3-decoder-1.3.1/AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-database:1.3.1] /home/z/.gradle/caches/transforms-4/af8cc52f638cee7a328f475ab60e5d88/transformed/media3-database-1.3.1/AndroidManifest.xml:20:5-44
@@ -363,7 +380,7 @@ ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf86
 		ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:24:9-44
 	android:name
 		ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:23:9-81
-permission#com.videohost.tv.debug.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+permission#com.videohost.tv.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:22:5-24:47
 	android:protectionLevel
 		ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:24:9-44
@@ -373,7 +390,7 @@ uses-permission#${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:26:5-97
 	android:name
 		ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:26:22-94
-uses-permission#com.videohost.tv.debug.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+uses-permission#com.videohost.tv.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:26:5-97
 	android:name
 		ADDED from [androidx.core:core:1.13.0] /home/z/.gradle/caches/transforms-4/6cf860e5cdcd8e7b571e3d436ae2479b/transformed/core-1.13.0/AndroidManifest.xml:26:22-94
