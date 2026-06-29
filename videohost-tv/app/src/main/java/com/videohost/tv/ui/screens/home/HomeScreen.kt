@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +41,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.videohost.tv.R
 import com.videohost.tv.data.api.VideoHostRepository
+import com.videohost.tv.data.model.MarksBulkEntry
 import com.videohost.tv.data.model.PlaylistFull
+import com.videohost.tv.data.model.PlaylistGroup
 import com.videohost.tv.data.model.VideoItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -56,10 +59,21 @@ fun HomeScreen(
     var playlists by remember { mutableStateOf<List<PlaylistFull>>(emptyList()) }
     var allVideos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var continueWatching by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var marksMap by remember { mutableStateOf<Map<String, MarksBulkEntry>>(emptyMap()) }
+    var playlistGroups by remember { mutableStateOf<List<PlaylistGroup>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var sortDesc by remember { mutableStateOf(false) }  // false=old first, true=new first
+    var sortDesc by remember { mutableStateOf(false) }
     var baseUrl by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    suspend fun reloadMarks() {
+        try {
+            val api = repo.getApi()
+            val resp = api.getMyMarks()
+            marksMap = resp.marks.associateBy { it.videoId }
+        } catch (_: Exception) {}
+    }
 
     LaunchedEffect(Unit) {
         try {
@@ -75,6 +89,12 @@ fun HomeScreen(
             val vids = api.listVideos()
             playlists = pls
             allVideos = vids
+            // Load groups (best-effort — endpoint may not exist on older backends)
+            try {
+                playlistGroups = api.listPlaylistGroups()
+            } catch (_: Exception) {
+                playlistGroups = emptyList()
+            }
             // Build "Continue watching" — for each video, fetch its progress; keep those with > 5s
             val cont = mutableListOf<VideoItem>()
             for (v in vids) {
@@ -84,10 +104,25 @@ fun HomeScreen(
                 } catch (_: Exception) {}
             }
             continueWatching = cont
+            reloadMarks()
             loading = false
         } catch (e: Exception) {
             error = "Не удалось загрузить данные: ${e.message ?: "неизвестная ошибка"}"
             loading = false
+        }
+    }
+
+    // Auto-refresh every 30 seconds
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30000)
+            try {
+                val api = repo.getApi()
+                playlists = api.listPlaylists()
+                allVideos = api.listVideos()
+                try { playlistGroups = api.listPlaylistGroups() } catch (_: Exception) {}
+                reloadMarks()
+            } catch (_: Exception) {}
         }
     }
 
@@ -148,7 +183,6 @@ fun HomeScreen(
                         ) {
                             Text("Настройки")
                         }
-                        // Sort direction toggle — to the LEFT of Settings button
                         Button(
                             onClick = { sortDesc = !sortDesc },
                             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 100.dp),
@@ -171,6 +205,7 @@ fun HomeScreen(
                                     title = "Продолжить просмотр",
                                     videos = continueWatching,
                                     baseUrl = baseUrl,
+                                    marksMap = marksMap,
                                     onItemClick = { v ->
                                         onPlayVideo(null, v.id, continueWatching.map { it.id })
                                     },
@@ -183,13 +218,16 @@ fun HomeScreen(
                                     title = "Недавно добавленные",
                                     videos = allVideos.take(20),
                                     baseUrl = baseUrl,
+                                    marksMap = marksMap,
                                     onItemClick = { v ->
                                         onPlayVideo(null, v.id, allVideos.map { it.id })
                                     },
                                 )
                             }
                         }
-                        for (pl in playlists) {
+                        // Playlists without a group
+                        val ungroupedPlaylists = playlists.filter { it.groupId == null }
+                        for (pl in ungroupedPlaylists) {
                             val plVideos = if (sortDesc) {
                                 pl.items.sortedByDescending { it.order }.map { it.video }
                             } else {
@@ -201,10 +239,57 @@ fun HomeScreen(
                                         title = pl.name,
                                         videos = plVideos,
                                         baseUrl = baseUrl,
-                                    onItemClick = { v ->
+                                        marksMap = marksMap,
+                                        onItemClick = { v ->
                                             onPlayVideo(pl.id, v.id, plVideos.map { it.id })
                                         },
+                                        onMarkAllWatched = {
+                                            scope.launch {
+                                                try {
+                                                    val api = repo.getApi()
+                                                    api.markAllWatched(pl.id)
+                                                    reloadMarks()
+                                                } catch (_: Exception) {}
+                                            }
+                                        },
                                     )
+                                }
+                            }
+                        }
+                        // Grouped playlists
+                        for (g in playlistGroups) {
+                            val groupPlaylists = playlists.filter { it.groupId == g.id }
+                            if (groupPlaylists.isEmpty()) continue
+                            item {
+                                GroupHeader(group = g)
+                            }
+                            for (pl in groupPlaylists) {
+                                val plVideos = if (sortDesc) {
+                                    pl.items.sortedByDescending { it.order }.map { it.video }
+                                } else {
+                                    pl.items.sortedBy { it.order }.map { it.video }
+                                }
+                                if (plVideos.isNotEmpty()) {
+                                    item {
+                                        VideoRow(
+                                            title = pl.name,
+                                            videos = plVideos,
+                                            baseUrl = baseUrl,
+                                            marksMap = marksMap,
+                                            onItemClick = { v ->
+                                                onPlayVideo(pl.id, v.id, plVideos.map { it.id })
+                                            },
+                                            onMarkAllWatched = {
+                                                scope.launch {
+                                                    try {
+                                                        val api = repo.getApi()
+                                                        api.markAllWatched(pl.id)
+                                                        reloadMarks()
+                                                    } catch (_: Exception) {}
+                                                }
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -216,20 +301,60 @@ fun HomeScreen(
 }
 
 @Composable
+private fun GroupHeader(group: PlaylistGroup) {
+    val groupColor = try { Color(android.graphics.Color.parseColor(group.color)) } catch (_: Exception) { Color(0xFF6366f1) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!group.icon.isNullOrEmpty()) {
+            Text(group.icon, color = groupColor, fontSize = 20.sp)
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            group.name.uppercase(),
+            color = groupColor,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
 private fun VideoRow(
     title: String,
     videos: List<VideoItem>,
     onItemClick: (VideoItem) -> Unit,
     baseUrl: String = "",
+    marksMap: Map<String, MarksBulkEntry> = emptyMap(),
+    onMarkAllWatched: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            title,
-            color = Color.White,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            if (onMarkAllWatched != null) {
+                Button(
+                    onClick = onMarkAllWatched,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1F1F23),
+                        contentColor = Color.White,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Text("✓ Все просмотрено", fontSize = 11.sp)
+                }
+            }
+        }
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -240,6 +365,8 @@ private fun VideoRow(
                     onClick = { onItemClick(v) },
                     modifier = Modifier.size(width = 200.dp, height = 130.dp),
                     baseUrl = baseUrl,
+                    watched = marksMap[v.id]?.watched == true,
+                    favorite = marksMap[v.id]?.favorite == true,
                 )
             }
         }
@@ -252,6 +379,8 @@ private fun VideoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     baseUrl: String = "",
+    watched: Boolean = false,
+    favorite: Boolean = false,
 ) {
     Card(
         onClick = onClick,
@@ -262,7 +391,6 @@ private fun VideoCard(
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Use thumbnail endpoint — handles YouTube redirect + local + ffmpeg
             val thumbUrl = if (baseUrl.isNotEmpty()) {
                 "$baseUrl/api/videos/${video.id}/thumbnail"
             } else {
@@ -280,7 +408,37 @@ private fun VideoCard(
                     .fillMaxSize()
                     .background(Color(0xFF2F2F35)))
             }
-            // Title + date overlay at bottom
+
+            if (watched || favorite) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (watched) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .background(Color(0xCC10B981), RoundedCornerShape(4.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (favorite) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .background(Color(0xCCF59E0B), RoundedCornerShape(4.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("★", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -295,7 +453,6 @@ private fun VideoCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // YouTube publish date
                 video.publishedAt?.takeIf { it.isNotEmpty() }?.let { dateStr ->
                     Text(
                         text = formatPubDate(dateStr),

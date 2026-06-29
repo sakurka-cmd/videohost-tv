@@ -39,6 +39,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
 import kotlinx.coroutines.delay
@@ -46,6 +47,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 val PLAYBACK_SPEEDS = floatArrayOf(0.5f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+
+enum class MarkField { WATCHED, FAVORITE }
 
 @Composable
 fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () -> Unit) {
@@ -61,7 +64,47 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
+    var watched by remember { mutableStateOf(false) }
+    var favorite by remember { mutableStateOf(false) }
     val autoplayNext = remember { mutableStateOf(true) }
+
+    LaunchedEffect(currentVideoId) {
+        try {
+            val mark = repo.getApi().getMarks(currentVideoId)
+            watched = mark.watched
+            favorite = mark.favorite
+        } catch (_: Exception) {
+            watched = false
+            favorite = false
+        }
+    }
+
+    fun toggleMark(field: MarkField) {
+        val newValue = when (field) {
+            MarkField.WATCHED -> !watched
+            MarkField.FAVORITE -> !favorite
+        }
+        when (field) {
+            MarkField.WATCHED -> watched = newValue
+            MarkField.FAVORITE -> favorite = newValue
+        }
+        scope.launch {
+            try {
+                val api = repo.getApi()
+                val updated = api.putMarks(currentVideoId, MarkUpdateRequest(
+                    watched = if (field == MarkField.WATCHED) newValue else null,
+                    favorite = if (field == MarkField.FAVORITE) newValue else null,
+                ))
+                watched = updated.watched
+                favorite = updated.favorite
+            } catch (_: Exception) {
+                when (field) {
+                    MarkField.WATCHED -> watched = !newValue
+                    MarkField.FAVORITE -> favorite = !newValue
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         autoplayNext.value = repo.autoplayNextFlow.first()
@@ -116,6 +159,8 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                 Key.DirectionUp -> { switchTo(currentIndex - 1); true }
                 Key.DirectionDown -> { switchTo(currentIndex + 1); true }
                 Key.Menu -> { speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
+                Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
+                Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
                 Key.Back -> { scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
                 else -> false
             }
@@ -134,6 +179,20 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                     Text(text = "${fmt(positionMs)}", color = Color.White, fontSize = 12.sp)
                     Text(text = if (isPlaying) "\u23F8" else "\u25B6", color = Color.White, fontSize = 20.sp, modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { currentPlayer?.let { it.playWhenReady = !it.playWhenReady } })
                     Text(text = "${PLAYBACK_SPEEDS[speedIdx]}x", color = if (speedIdx > 1) Color(0xFFEF4444) else Color.White, fontSize = 12.sp, modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = if (watched) "✓ Просм." else "✓",
+                            color = if (watched) Color(0xFF10B981) else Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { toggleMark(MarkField.WATCHED) },
+                        )
+                        Text(
+                            text = if (favorite) "★ Избр." else "★",
+                            color = if (favorite) Color(0xFFF59E0B) else Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { toggleMark(MarkField.FAVORITE) },
+                        )
+                    }
                     Text(text = "${fmt(durationMs)}", color = Color.White, fontSize = 12.sp)
                 }
                 if (durationMs > 0) { LinearProgressIndicator(progress = { (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(3.dp).padding(top = 4.dp), color = Color(0xFFEF4444), trackColor = Color.White.copy(alpha = 0.3f)) }
