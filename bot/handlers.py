@@ -815,8 +815,17 @@ def register_handlers(bot: AsyncTeleBot):
 
             file_path = await download_video(url, quality)
             if not file_path or file_path == "TOO_LARGE":
-                err_msg = "Файл слишком большой" if file_path == "TOO_LARGE" else "Ошибка скачивания"
-                await bot.send_message(user_id, f"{err_msg}: {title}")
+                if file_path == "TOO_LARGE":
+                    await bot.send_message(user_id, f"⚠️ Файл слишком большой: {title}")
+                else:
+                    err_detail = current_status.get("error", "")[:200]
+                    await bot.send_message(
+                        user_id,
+                        f"⚠️ Ошибка скачивания: {title}\n"
+                        f"Причина: {err_detail or 'неизвестна'}\n\n"
+                        f"Возможно, видео недоступно или YouTube требует обновления yt-dlp.\n"
+                        f"Попробуйте позже или другое качество."
+                    )
                 return
 
             result = await upload_video(
