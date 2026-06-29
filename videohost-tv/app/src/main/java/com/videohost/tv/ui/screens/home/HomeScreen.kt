@@ -91,6 +91,18 @@ fun HomeScreen(
         }
     }
 
+    // Auto-refresh every 30 seconds — so newly uploaded videos appear
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30000)
+            try {
+                val api = repo.getApi()
+                playlists = api.listPlaylists()
+                allVideos = api.listVideos()
+            } catch (_: Exception) {}
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
