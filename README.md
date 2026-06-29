@@ -169,3 +169,19 @@ sudo journalctl -u yt2tg-bot -f
 ## Лицензия
 
 MIT
+### v1.6.0 — 2026-06-29
+
+**Added:**
+- `/dl_playlist` command — download entire YouTube playlist into separate VideoHost playlist (named `ytpls_<title>`).
+- Period selection for `/dl_playlist` (7/30/90/180/365 days or all time).
+- Beautiful reply keyboard with emoji icons: 🔔 Подписка, ⬇ Скачать видео, 📂 YouTube плейлист, 📦 Архив за период, 📋 Мои подписки, 🎚 Плейлисты, 📊 Статус, ⏹ Отменить, ❓ Помощь.
+- Subscribe via video link — bot auto-detects channel from video URL metadata.
+- Enhanced `/status` — shows active task, backfill status, and videos uploaded in last 24 hours.
+- `db.list_recent_videos(hours=24)` for status reporting.
+
+**Fixed:**
+- Scheduler using handle instead of UC channel_id for RSS — all subscriptions now work.
+- `list_channel_videos` not imported — caused backfill failure.
+- `backfill_period_keyboard` not imported.
+- Menu button handler — `BUTTON_ALIASES` lookup was broken.
+- Backfill, cancel, and _process_backfill restored (were lost in rebuilds).
