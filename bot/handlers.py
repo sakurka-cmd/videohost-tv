@@ -24,6 +24,10 @@ from bot.config import ADMIN_IDS, QUALITY_LABELS, DEFAULT_QUALITY
 
 logger = logging.getLogger(__name__)
 
+# Registry of active backfill/playlist-download tasks, keyed by user_id.
+# Setting cancel=True causes the running task to stop after the current video.
+backfill_tasks: dict[int, dict] = {}
+
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
@@ -184,6 +188,56 @@ def register_handlers(bot: AsyncTeleBot):
             "  https://www.youtube.com/watch?v=XXX&list=PLxxxxxxx",
             reply_markup=cancel_keyboard(),
         )
+
+    # ═══════════════════════════════════════════════════════
+    #  /backfill — download archive of past videos for a subscription
+    # ═══════════════════════════════════════════════════════
+    @bot.message_handler(commands=["backfill"])
+    async def cmd_backfill(msg: Message):
+        if not is_admin(msg.from_user.id):
+            await bot.reply_to(msg, "У вас нет доступа.")
+            return
+        subs = await db.list_subscriptions()
+        active_subs = [s for s in subs if s["active"]]
+        if not active_subs:
+            await bot.reply_to(msg, "Нет активных подписок.\nДобавьте: /subscribe")
+            return
+        kb = subscriptions_keyboard(active_subs)
+        if not kb:
+            await bot.reply_to(msg, "Нет активных подписок.")
+            return
+        await db.save_fsm_state(msg.from_user.id, States.BACKFILL_SELECT_SUB, {})
+        await bot.reply_to(
+            msg,
+            "Выберите подписку для загрузки архива:\n\n"
+            "Будут скачаны видео за выбранный период, которых ещё нет в VideoHost. "
+            "Уже загруженные видео пропускаются.",
+            reply_markup=kb,
+        )
+
+    # ═══════════════════════════════════════════════════════
+    #  /cancel — cancel current backfill or FSM state
+    # ═══════════════════════════════════════════════════════
+    @bot.message_handler(commands=["cancel"])
+    async def cmd_cancel(msg: Message):
+        if not is_admin(msg.from_user.id):
+            await bot.reply_to(msg, "У вас нет доступа.")
+            return
+        uid = msg.from_user.id
+        if uid in backfill_tasks:
+            backfill_tasks[uid]["cancel"] = True
+            await bot.reply_to(
+                msg,
+                "⏹ Отменяю текущую загрузку...\n"
+                "Бот остановится после текущего видео (может занять до минуты).",
+            )
+            return
+        state, _ = await db.get_fsm_state(uid)
+        if state:
+            await db.clear_fsm_state(uid)
+            await bot.reply_to(msg, "✅ Текущее действие отменено.")
+            return
+        await bot.reply_to(msg, "Нет активной задачи для отмены.", reply_markup=main_menu_keyboard())
 
     # ═══════════════════════════════════════════════════════
     #  /list — subscriptions
@@ -430,6 +484,25 @@ def register_handlers(bot: AsyncTeleBot):
                     reply_markup=quality_keyboard(),
                 )
                 await db.save_fsm_state(uid, States.QUALITY_VALUE, data)
+                return
+
+            # ── Backfill: user picked a subscription ──
+            if data_str.startswith("sub:") and state == States.BACKFILL_SELECT_SUB:
+                sub_id = int(data_str.split(":")[1])
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                data["sub_id"] = sub_id
+                await bot.edit_message_text(
+                    f"Загрузка архива для подписки #{sub_id}\n"
+                    f"Канал: {sub.get('channel_title', sub.get('channel_id', ''))}\n\n"
+                    f"Выберите период:",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=backfill_period_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.BACKFILL_ASK_PERIOD, data)
                 return
 
             if data_str.startswith("q:") and state == States.QUALITY_VALUE:
@@ -868,6 +941,160 @@ def register_handlers(bot: AsyncTeleBot):
 
         except Exception as e:
             logger.exception("_process_dl_playlist error: %s", e)
+            try:
+                await bot.send_message(user_id, f"Ошибка: {e}")
+            except Exception:
+                pass
+        finally:
+            backfill_tasks.pop(user_id, None)
+            current_status.update({"task": "", "progress": "", "error": "", "url": "", "title": ""})
+
+    # ── Background task: backfill (archive download) ────────────
+    async def _process_backfill(user_id: int, sub_id: int, period: str):
+        """Download all videos from a subscription's channel within the given period."""
+        from datetime import datetime, timedelta, timezone
+
+        backfill_tasks[user_id] = {"sub_id": sub_id, "period": period, "cancel": False}
+
+        try:
+            sub = await db.get_subscription(sub_id)
+            if not sub:
+                await bot.send_message(user_id, "Подписка не найдена.")
+                return
+
+            channel_handle = sub.get("channel_id", "")
+            yt_channel_id = sub.get("youtube_channel_id", "") or ""
+            playlist_id = sub.get("playlist_id", "")
+            quality = sub.get("quality", DEFAULT_QUALITY)
+            sub_title = sub.get("channel_title", channel_handle)
+
+            if yt_channel_id:
+                channel_url = f"https://www.youtube.com/channel/{yt_channel_id}/videos"
+            elif channel_handle:
+                channel_url = f"https://www.youtube.com/@{channel_handle}/videos"
+            else:
+                await bot.send_message(user_id, "Не удалось построить URL канала.")
+                return
+
+            await bot.send_message(
+                user_id,
+                f"📡 Получаю список видео канала «{sub_title}»...\nЧтобы отменить — /cancel",
+            )
+
+            all_videos = await list_channel_videos(channel_url, max_count=200)
+            if not all_videos:
+                await bot.send_message(user_id, "Не удалось получить список видео.")
+                return
+
+            if period == "all":
+                cutoff = None
+                period_label = "всё время"
+            else:
+                days = int(period)
+                cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+                period_label = f"{days} дн."
+
+            in_period = []
+            skipped_no_date = 0
+            too_old = 0
+            for v in all_videos:
+                upload_date_str = v.get("upload_date", "")
+                if not upload_date_str or len(upload_date_str) != 8:
+                    skipped_no_date += 1
+                    continue
+                try:
+                    pub_dt = datetime.strptime(upload_date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+                    if cutoff and pub_dt < cutoff:
+                        too_old += 1
+                        continue
+                    v["_pub_dt"] = pub_dt
+                    in_period.append(v)
+                except Exception:
+                    skipped_no_date += 1
+
+            to_download = []
+            already_done = 0
+            for v in in_period:
+                existing = await db.get_processed_video(v["id"])
+                if existing:
+                    vh_id_old = existing.get("videohost_id", "") or ""
+                    if vh_id_old and not await video_exists(vh_id_old):
+                        await db.unmark_video_processed(v["id"])
+                        to_download.append(v)
+                    else:
+                        already_done += 1
+                else:
+                    to_download.append(v)
+
+            to_download.sort(key=lambda x: x.get("_pub_dt") or datetime.min.replace(tzinfo=timezone.utc))
+
+            summary_lines = [
+                f"📊 Найдено видео: {len(all_videos)}",
+                f"В периоде «{period_label}»: {len(in_period)}",
+            ]
+            if skipped_no_date > 0:
+                summary_lines.append(f"Без даты (пропущено): {skipped_no_date}")
+            if too_old > 0:
+                summary_lines.append(f"Старше периода: {too_old}")
+            summary_lines.append(f"Уже загружено: {already_done}")
+            summary_lines.append(f"К загрузке: {len(to_download)}")
+            await bot.send_message(user_id, "\n".join(summary_lines))
+
+            if not to_download:
+                await bot.send_message(user_id, "✅ Нечего загружать — все видео уже есть.")
+                return
+
+            uploaded_count = 0
+            failed_count = 0
+            for i, v in enumerate(to_download, 1):
+                if backfill_tasks.get(user_id, {}).get("cancel"):
+                    await bot.send_message(user_id, f"⏹ Отменено. Загружено: {uploaded_count}, ошибок: {failed_count}")
+                    break
+
+                yt_id = v["id"]
+                title = v.get("title", yt_id)
+                url = v.get("url") or f"https://www.youtube.com/watch?v={yt_id}"
+                pub_dt = v.get("_pub_dt")
+                published_at = pub_dt.strftime("%Y%m%d") if pub_dt else ""
+
+                try:
+                    await bot.send_message(user_id, f"[{i}/{len(to_download)}] ⬇ {title}")
+                    file_path = await download_video(url, quality)
+                    if not file_path or file_path == "TOO_LARGE":
+                        if file_path == "TOO_LARGE":
+                            await db.mark_video_processed(yt_id, sub_id, title, quality, "")
+                        failed_count += 1
+                        continue
+
+                    yt_thumb = f"https://img.youtube.com/vi/{yt_id}/hqdefault.jpg"
+                    result = await upload_video(
+                        file_path, title, playlist_id or None,
+                        published_at=published_at,
+                        thumbnail_url=yt_thumb,
+                        youtube_id=yt_id,
+                    )
+                    cleanup_file(file_path)
+
+                    if result:
+                        vh_id = result.get("id", "")
+                        await db.mark_video_processed(yt_id, sub_id, title, quality, vh_id)
+                        uploaded_count += 1
+                        if playlist_id:
+                            await sort_playlist(playlist_id)
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    logger.exception("Backfill error on %s: %s", yt_id, e)
+                    failed_count += 1
+
+            await bot.send_message(
+                user_id,
+                f"🏁 Загрузка архива завершена!\nКанал: «{sub_title}»\nПериод: {period_label}\n"
+                f"Загружено: {uploaded_count}\nОшибок: {failed_count}\nУже было: {already_done}",
+            )
+
+        except Exception as e:
+            logger.exception("_process_backfill error: %s", e)
             try:
                 await bot.send_message(user_id, f"Ошибка: {e}")
             except Exception:

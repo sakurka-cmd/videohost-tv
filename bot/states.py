@@ -25,3 +25,6 @@ class States(str, Enum):
     DLPL_ASK_URL = "dlpl_ask_url"
     DLPL_ASK_QUALITY = "dlpl_ask_quality"
     DLPL_ASK_PERIOD = "dlpl_ask_period"
+    # Backfill flow (download archive for existing subscription)
+    BACKFILL_SELECT_SUB = "backfill_select_sub"
+    BACKFILL_ASK_PERIOD = "backfill_ask_period"
