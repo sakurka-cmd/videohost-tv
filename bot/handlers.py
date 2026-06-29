@@ -11,7 +11,7 @@ from bot.states import States
 from bot.downloader import (
     download_video, extract_video_id, extract_channel_id,
     get_video_info, get_channel_info, cleanup_file, current_status,
-    extract_playlist_id, get_youtube_playlist_info,
+    extract_playlist_id, get_youtube_playlist_info, list_channel_videos,
 )
 from bot.uploader import (
     upload_video, list_playlists, find_or_create_playlist, sort_playlist, video_exists,
@@ -124,19 +124,45 @@ def register_handlers(bot: AsyncTeleBot):
     @bot.message_handler(commands=["status"])
     async def cmd_status(msg: Message):
         s = current_status
+        lines = []
+
+        # Active task
         if s["task"]:
-            text = f"Текущая задача: {s['task']}\n"
+            lines.append(f"📋 Активная задача: {s['task']}")
             if s["title"]:
-                text += f"{s['title']}\n"
-            if s["url"]:
-                text += f"{s['url']}\n"
+                lines.append(f"  {s['title']}")
             if s["progress"]:
-                text += f"{s['progress']}\n"
+                lines.append(f"  {s['progress']}")
             if s["error"]:
-                text += f"Ошибка: {s['error']}\n"
+                lines.append(f"  ⚠️ {s['error']}")
         else:
-            text = "Нет активных задач."
-        await bot.reply_to(msg, text)
+            lines.append("📋 Активных задач нет.")
+
+        # Backfill task status
+        uid = msg.from_user.id
+        if uid in backfill_tasks:
+            bt = backfill_tasks[uid]
+            if bt.get("cancel"):
+                lines.append("\n⏹ Загрузка отменяется...")
+            else:
+                lines.append(f"\n🔄 Загрузка идёт (период: {bt.get('period', '?')})")
+
+        # Recently uploaded videos (last 24h)
+        try:
+            recent = await db.list_recent_videos(hours=24)
+            if recent:
+                lines.append(f"\n📹 Загружено за последние 24 часа ({len(recent)}):")
+                for v in recent[:15]:
+                    title = v.get("title", "?")
+                    if len(title) > 50:
+                        title = title[:47] + "..."
+                    lines.append(f"  • {title}")
+                if len(recent) > 15:
+                    lines.append(f"  ...и ещё {len(recent) - 15}")
+        except Exception:
+            pass
+
+        await bot.reply_to(msg, "\n".join(lines))
 
     # ═══════════════════════════════════════════════════════
     #  /subscribe — FSM: URL -> quality -> playlist -> confirm

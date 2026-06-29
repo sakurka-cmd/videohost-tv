@@ -246,6 +246,20 @@ async def unmark_video_processed(youtube_id: str):
     await db.commit()
 
 
+async def list_recent_videos(hours: int = 24) -> list[dict]:
+    """Return videos uploaded in the last N hours, newest first."""
+    db = get_db()
+    cur = await db.execute(
+        "SELECT * FROM processed_videos "
+        "WHERE uploaded_at >= datetime('now', ?) "
+        "AND videohost_id != '' "
+        "ORDER BY uploaded_at DESC",
+        (f"-{hours} hours",),
+    )
+    rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 # ── One-off tasks ────────────────────────────────────────────
 
 async def create_oneoff_task(user_id: int, url: str, playlist_id: str = "",
