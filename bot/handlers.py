@@ -37,33 +37,64 @@ def register_handlers(bot: AsyncTeleBot):
     async def cmd_start(msg: Message):
         await bot.reply_to(
             msg,
-            "Бот для сохранения видео с YouTube в VideoHost.\n\n"
-            "Команды:\n"
-            "/subscribe — подписаться на YouTube-канал\n"
-            "/dl — скачать видео по ссылке\n"
-            "/list — список подписок\n"
-            "/playlists — плейлисты VideoHost\n"
-            "/status — статус загрузки\n"
-            "/help — помощь",
+            "🎬 UTube Bot — сохранение видео с YouTube в VideoHost\n\n"
+            "Выберите действие в меню ниже 👇",
             reply_markup=main_menu_keyboard(),
         )
+
+    # ── Text button aliases (from ReplyKeyboard) ─────────────
+    BUTTON_ALIASES = {
+        "🔔 Подписка": "/subscribe",
+        "⬇ Скачать видео": "/dl",
+        "📦 Архив за период": "/backfill",
+        "📋 Мои подписки": "/list",
+        "🎚 Плейлисты": "/playlists",
+        "📊 Статус": "/status",
+        "⏹ Отменить": "/cancel",
+        "❓ Помощь": "/help",
+    }
+
+    @bot.message_handler(func=lambda m: m.text in BUTTON_ALIASES)
+    async def handle_menu_button(msg: Message):
+        """Convert reply keyboard button text to the corresponding command."""
+        msg.text = BUTTON_ALIASES[msg.text]
+        # Re-dispatch: just call the command handler directly by checking
+        # what the alias maps to
+        cmd = BUTTON_ALIASES.get(msg.text, "")
+        if cmd == "/subscribe":
+            await cmd_subscribe(msg)
+        elif cmd == "/dl":
+            await cmd_dl(msg)
+        elif cmd == "/backfill":
+            await cmd_backfill(msg)
+        elif cmd == "/list":
+            await cmd_list(msg)
+        elif cmd == "/playlists":
+            await cmd_playlists(msg)
+        elif cmd == "/status":
+            await cmd_status(msg)
+        elif cmd == "/cancel":
+            await cmd_cancel(msg)
+        elif cmd == "/help":
+            await cmd_help(msg)
 
     # ── /help ────────────────────────────────────────────────
     @bot.message_handler(commands=["help"])
     async def cmd_help(msg: Message):
         await bot.reply_to(
             msg,
-            "Бот сохраняет видео с YouTube в VideoHost.\n\n"
-            "Подписка на канал:\n"
-            "  /subscribe — авто-загрузка новых видео в плейлист\n\n"
-            "Разовая загрузка:\n"
-            "  /dl https://youtube.com/watch?v=XXXXX\n\n"
+            "🎬 UTube Bot — сохранение видео с YouTube в VideoHost\n\n"
+            "🔔 Подписка — авто-загрузка новых видео с канала\n"
+            "⬇ Скачать видео — разовая загрузка по ссылке\n"
+            "📦 Архив за период — скачать старые видео (7/30/90/180/365 дней)\n"
+            "📋 Мои подписки — список подписок\n"
+            "🎚 Плейлисты — плейлисты VideoHost\n"
+            "📊 Статус — статус текущей загрузки\n"
+            "⏹ Отменить — остановить текущую загрузку\n\n"
             "Качество: 480p, 720p (по умолчанию), 1080p, 4K\n\n"
-            "Управление:\n"
-            "  /list — подписки\n"
-            "  /unsub — отписаться\n"
-            "  /playlists — плейлисты\n"
-            "  /status — статус загрузки",
+            "Команды тоже работают:\n"
+            "  /subscribe, /dl, /backfill, /list, /playlists,\n"
+            "  /status, /cancel, /unsub, /quality",
             reply_markup=main_menu_keyboard(),
         )
 

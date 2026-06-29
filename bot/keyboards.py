@@ -5,11 +5,11 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 
 def quality_keyboard() -> InlineKeyboardMarkup:
     ikm = InlineKeyboardMarkup()
-    ikm.row(InlineKeyboardButton("480p", callback_data="q:480"),
-            InlineKeyboardButton("720p", callback_data="q:720"))
-    ikm.row(InlineKeyboardButton("1080p", callback_data="q:1080"),
-            InlineKeyboardButton("4K", callback_data="q:4k"))
-    ikm.row(InlineKeyboardButton("Отмена", callback_data="cancel"))
+    ikm.row(InlineKeyboardButton("📹 480p", callback_data="q:480"),
+            InlineKeyboardButton("📹 720p", callback_data="q:720"))
+    ikm.row(InlineKeyboardButton("📹 1080p", callback_data="q:1080"),
+            InlineKeyboardButton("📹 4K", callback_data="q:4k"))
+    ikm.row(InlineKeyboardButton("❌ Отмена", callback_data="cancel"))
     return ikm
 
 
@@ -51,9 +51,41 @@ def subscriptions_keyboard(subscriptions: list[dict]) -> InlineKeyboardMarkup:
     return ikm
 
 
+def backfill_period_keyboard() -> InlineKeyboardMarkup:
+    """Period choices for backfill (days back from now)."""
+    ikm = InlineKeyboardMarkup()
+    ikm.row(
+        InlineKeyboardButton("📅 7 дней", callback_data="bp:7"),
+        InlineKeyboardButton("📅 30 дней", callback_data="bp:30"),
+    )
+    ikm.row(
+        InlineKeyboardButton("📅 90 дней", callback_data="bp:90"),
+        InlineKeyboardButton("📅 180 дней", callback_data="bp:180"),
+    )
+    ikm.row(
+        InlineKeyboardButton("📅 1 год", callback_data="bp:365"),
+        InlineKeyboardButton("♾ Всё время", callback_data="bp:all"),
+    )
+    ikm.row(InlineKeyboardButton("❌ Отмена", callback_data="cancel"))
+    return ikm
+
+
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    kb.add(KeyboardButton("/subscribe"), KeyboardButton("/dl"))
-    kb.add(KeyboardButton("/list"), KeyboardButton("/playlists"))
-    kb.add(KeyboardButton("/status"), KeyboardButton("/help"))
+    kb.add(
+        KeyboardButton("🔔 Подписка"),
+        KeyboardButton("⬇ Скачать видео"),
+    )
+    kb.add(
+        KeyboardButton("📦 Архив за период"),
+        KeyboardButton("📋 Мои подписки"),
+    )
+    kb.add(
+        KeyboardButton("🎚 Плейлисты"),
+        KeyboardButton("📊 Статус"),
+    )
+    kb.add(
+        KeyboardButton("⏹ Отменить"),
+        KeyboardButton("❓ Помощь"),
+    )
     return kb
