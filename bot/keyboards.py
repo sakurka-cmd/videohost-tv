@@ -80,6 +80,22 @@ def filters_menu_keyboard() -> InlineKeyboardMarkup:
     return ikm
 
 
+def manage_menu_keyboard() -> InlineKeyboardMarkup:
+    """Unified action menu for a single subscription (nested inline menus)."""
+    ikm = InlineKeyboardMarkup()
+    ikm.row(InlineKeyboardButton("🗑 Отписаться", callback_data="mm:unsub"))
+    ikm.row(
+        InlineKeyboardButton("🔍 Фильтры", callback_data="mm:filters"),
+        InlineKeyboardButton("📦 Архив", callback_data="mm:backfill"),
+    )
+    ikm.row(
+        InlineKeyboardButton("🎚 Качество", callback_data="mm:quality"),
+        InlineKeyboardButton("⏱ Время жизни", callback_data="mm:lifetime"),
+    )
+    ikm.row(InlineKeyboardButton("✅ Готово", callback_data="cancel"))
+    return ikm
+
+
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add(

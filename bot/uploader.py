@@ -255,3 +255,35 @@ async def reorder_playlist(playlist_id: str, items: list[dict]) -> bool:
     # This endpoint requires auth session, not bot token.
     # For bot, we skip reorder via API. If needed, implement differently.
     return True
+
+
+async def update_playlist_lifetime(playlist_id: str, lifetime_days: int | None) -> dict | None:
+    """Set the watched-video lifetime (in days) for a playlist via bot token API.
+
+    Args:
+        playlist_id: VideoHost playlist ID
+        lifetime_days: Number of days after which watched videos are auto-deleted.
+                       None or 0 = disable lifetime (videos never auto-deleted).
+
+    Returns: {"id": "...", "name": "...", "lifetimeDays": ...} or None on failure.
+    """
+    if not playlist_id:
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.put(
+                f"{VIDEOHOST_URL}/api/bot/playlists/{playlist_id}",
+                json={"lifetimeDays": lifetime_days if lifetime_days and lifetime_days > 0 else None},
+                headers=_headers(),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    logger.info("Updated playlist %s lifetimeDays=%s", playlist_id, lifetime_days)
+                    return data
+                else:
+                    err = await resp.text()
+                    logger.error("update_playlist_lifetime failed %d: %s", resp.status, err[:300])
+                    return None
+    except Exception as e:
+        logger.error("update_playlist_lifetime error: %s", e)
+        return None

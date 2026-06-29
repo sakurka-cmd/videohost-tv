@@ -19,10 +19,11 @@ from bot.uploader import (
 from bot.keyboards import (
     quality_keyboard, yes_no_keyboard, cancel_keyboard, playlists_keyboard,
     subscriptions_keyboard, main_menu_keyboard, backfill_period_keyboard,
-    filters_menu_keyboard,
+    filters_menu_keyboard, manage_menu_keyboard,
 )
 from bot.config import ADMIN_IDS, QUALITY_LABELS, DEFAULT_QUALITY
 from bot.filters import format_filter_for_display
+from bot.uploader import update_playlist_lifetime
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ def register_handlers(bot: AsyncTeleBot):
         "📋 Мои подписки": "/list",
         "🎚 Плейлисты": "/playlists",
         "🔍 Фильтры": "/filters",
+        "⚙️ Управление": "/manage",
         "📊 Статус": "/status",
         "⏹ Отменить": "/cancel",
         "❓ Помощь": "/help",
@@ -81,6 +83,8 @@ def register_handlers(bot: AsyncTeleBot):
             await cmd_playlists(msg)
         elif cmd == "/filters":
             await cmd_filters(msg)
+        elif cmd == "/manage":
+            await cmd_manage(msg)
         elif cmd == "/status":
             await cmd_status(msg)
         elif cmd == "/cancel":
@@ -371,6 +375,35 @@ def register_handlers(bot: AsyncTeleBot):
             reply_markup=kb,
         )
 
+    # ═══════════════════════════════════════════════════════
+    #  /manage — unified inline menu for all subscription actions
+    # ═══════════════════════════════════════════════════════
+    @bot.message_handler(commands=["manage"])
+    async def cmd_manage(msg: Message):
+        if not is_admin(msg.from_user.id):
+            await bot.reply_to(msg, "У вас нет доступа.")
+            return
+        subs = await db.list_subscriptions()
+        if not subs:
+            await bot.reply_to(msg, "Нет подписок.\nДобавьте: /subscribe")
+            return
+        kb = subscriptions_keyboard(subs)
+        if not kb:
+            await bot.reply_to(msg, "Нет подписок.")
+            return
+        await db.save_fsm_state(msg.from_user.id, States.MANAGE_SELECT_SUB, {})
+        await bot.reply_to(
+            msg,
+            "⚙️ Выберите подписку для управления:\n\n"
+            "Доступные действия:\n"
+            "• 🗑 Отписаться\n"
+            "• 🔍 Фильтры (белый/чёрный список)\n"
+            "• 📦 Архив за период\n"
+            "• 🎚 Качество\n"
+            "• ⏱ Время жизни просмотренных",
+            reply_markup=kb,
+        )
+
     # ── Callback query handler ──────────────────────────────
     @bot.callback_query_handler(func=lambda call: True)
     async def handle_callback(call: CallbackQuery):
@@ -649,6 +682,160 @@ def register_handlers(bot: AsyncTeleBot):
                 await bot.answer_callback_query(call.id, "Очищено")
                 return
 
+            # ═══════════════════════════════════════════════════════
+            # /manage — unified inline menu callbacks
+            # ═══════════════════════════════════════════════════════
+
+            # ── Manage: subscription selected → show action menu ──
+            if data_str.startswith("sub:") and state == States.MANAGE_SELECT_SUB:
+                sub_id = int(data_str.split(":")[1])
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                data["sub_id"] = sub_id
+                title = sub.get("channel_title", sub.get("channel_id", ""))
+                white = sub.get("white_filter", "") or ""
+                black = sub.get("black_filter", "") or ""
+                q = sub.get("quality", "720")
+                pl_id = sub.get("playlist_id", "") or ""
+                # Build info text
+                info_lines = [f"⚙️ Управление подпиской #{sub_id}", f"Канал: {title}", f"Качество: {QUALITY_LABELS.get(q, q + 'p')}"]
+                if white or black:
+                    info_lines.append(f"Фильтры: ✅{format_filter_for_display(white, max_items=2)} 🚫{format_filter_for_display(black, max_items=2)}")
+                else:
+                    info_lines.append("Фильтры: —")
+                if pl_id:
+                    info_lines.append(f"Плейлист: {pl_id[:20]}...")
+                await bot.edit_message_text(
+                    "\n".join(info_lines),
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=manage_menu_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.MANAGE_MENU, data)
+                return
+
+            # ── Manage: unsub action ──
+            if data_str == "mm:unsub" and state == States.MANAGE_MENU:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.answer_callback_query(call.id, "Ошибка: подписка не выбрана")
+                    return
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                await db.delete_subscription(sub_id)
+                await db.clear_fsm_state(uid)
+                title = sub.get("channel_title", sub.get("channel_id", ""))
+                await bot.edit_message_text(
+                    f"🗑 Отписка выполнена.\nКанал: {title}\nПлейлист на VideoHost сохранён.",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                )
+                await bot.answer_callback_query(call.id, "Отписано")
+                return
+
+            # ── Manage: filters action → transition to FILTERS_MENU ──
+            if data_str == "mm:filters" and state == States.MANAGE_MENU:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.answer_callback_query(call.id, "Ошибка: подписка не выбрана")
+                    return
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                white = sub.get("white_filter", "") or ""
+                black = sub.get("black_filter", "") or ""
+                title = sub.get("channel_title", sub.get("channel_id", ""))
+                await bot.edit_message_text(
+                    f"🔍 Фильтры для подписки #{sub_id}\n"
+                    f"Канал: {title}\n\n"
+                    f"✅ Белый список:\n  {format_filter_for_display(white)}\n\n"
+                    f"🚫 Чёрный список:\n  {format_filter_for_display(black)}\n\n"
+                    f"Пустой список = фильтр отключен.",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=filters_menu_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.FILTERS_MENU, data)
+                await bot.answer_callback_query(call.id)
+                return
+
+            # ── Manage: backfill action → transition to BACKFILL_ASK_PERIOD ──
+            if data_str == "mm:backfill" and state == States.MANAGE_MENU:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.answer_callback_query(call.id, "Ошибка: подписка не выбрана")
+                    return
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                title = sub.get("channel_title", sub.get("channel_id", ""))
+                await bot.edit_message_text(
+                    f"📦 Архив за период для подписки #{sub_id}\nКанал: {title}\n\nВыберите период:",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=backfill_period_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.BACKFILL_ASK_PERIOD, data)
+                await bot.answer_callback_query(call.id)
+                return
+
+            # ── Manage: quality action → transition to QUALITY_VALUE ──
+            if data_str == "mm:quality" and state == States.MANAGE_MENU:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.answer_callback_query(call.id, "Ошибка: подписка не выбрана")
+                    return
+                await bot.edit_message_text(
+                    f"🎚 Выберите новое качество для подписки #{sub_id}:",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=quality_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.QUALITY_VALUE, data)
+                await bot.answer_callback_query(call.id)
+                return
+
+            # ── Manage: lifetime action → ask for text input ──
+            if data_str == "mm:lifetime" and state == States.MANAGE_MENU:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.answer_callback_query(call.id, "Ошибка: подписка не выбрана")
+                    return
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                pl_id = sub.get("playlist_id", "") or ""
+                # Try to fetch current lifetime from VideoHost (best-effort)
+                cur_lifetime = "?"
+                if pl_id:
+                    try:
+                        from bot.uploader import list_playlist_items
+                        # We don't have a direct GET for playlist lifetime via bot API,
+                        # so just show the input prompt.
+                    except Exception:
+                        pass
+                await bot.edit_message_text(
+                    f"⏱ Время жизни просмотренных для подписки #{sub_id}\n\n"
+                    f"Введите количество дней (например, 30).\n"
+                    f"Видео, отмеченные «просмотренным», будут автоматически удалены "
+                    f"через указанное число дней, если они не отмечены «избранным».\n\n"
+                    f"0 или '-' = отключить (видео не удаляются автоматически).\n"
+                    f"Текущее значение: {cur_lifetime}",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=cancel_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.MANAGE_ASK_LIFETIME, data)
+                await bot.answer_callback_query(call.id)
+                return
+
             if data_str.startswith("q:") and state == States.QUALITY_VALUE:
                 quality = data_str.split(":")[1]
                 if quality not in QUALITY_LABELS:
@@ -891,6 +1078,57 @@ def register_handlers(bot: AsyncTeleBot):
                     f"🚫 Чёрный список обновлён:\n  {format_filter_for_display(new_black)}",
                     reply_markup=main_menu_keyboard(),
                 )
+                return
+
+            # ── Manage: lifetime text input ──
+            elif state == States.MANAGE_ASK_LIFETIME:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.reply_to(msg, "Ошибка: подписка не выбрана. Начните заново: /manage")
+                    await db.clear_fsm_state(uid)
+                    return
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.reply_to(msg, "Подписка не найдена.")
+                    await db.clear_fsm_state(uid)
+                    return
+                pl_id = sub.get("playlist_id", "") or ""
+                if not pl_id:
+                    await bot.reply_to(msg, "У подписки нет плейлиста. Невозможно установить время жизни.")
+                    await db.clear_fsm_state(uid)
+                    return
+                # Parse input
+                if text in ("", "-", "—", "0"):
+                    lifetime_days = None
+                    label = "отключено"
+                else:
+                    try:
+                        n = int(text)
+                        if n <= 0:
+                            lifetime_days = None
+                            label = "отключено"
+                        else:
+                            lifetime_days = n
+                            label = f"{n} дней"
+                    except ValueError:
+                        await bot.reply_to(msg, "Введите целое число дней (например, 30) или 0 для отключения.")
+                        return
+                # Call VideoHost API to update playlist lifetimeDays
+                result = await update_playlist_lifetime(pl_id, lifetime_days)
+                if result:
+                    await bot.reply_to(
+                        msg,
+                        f"⏱ Время жизни просмотренных: {label}\n"
+                        f"Подписка #{sub_id}, плейлист {pl_id[:20]}...",
+                        reply_markup=main_menu_keyboard(),
+                    )
+                else:
+                    await bot.reply_to(
+                        msg,
+                        f"⚠️ Не удалось обновить время жизни. Проверьте логи бота.",
+                        reply_markup=main_menu_keyboard(),
+                    )
+                await db.clear_fsm_state(uid)
                 return
 
         except Exception as e:

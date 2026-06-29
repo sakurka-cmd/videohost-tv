@@ -33,3 +33,7 @@ class States(str, Enum):
     FILTERS_MENU = "filters_menu"
     FILTERS_ASK_WHITE = "filters_ask_white"
     FILTERS_ASK_BLACK = "filters_ask_black"
+    # Unified manage flow (nested inline menus for all subscription actions)
+    MANAGE_SELECT_SUB = "manage_select_sub"
+    MANAGE_MENU = "manage_menu"
+    MANAGE_ASK_LIFETIME = "manage_ask_lifetime"
