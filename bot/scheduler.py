@@ -53,42 +53,12 @@ async def process_subscription(sub: dict) -> int:
         if not yt_id:
             continue
 
-        # Skip if already processed. Only re-upload if the video was
-        # explicitly deleted on VideoHost (video_exists returns False).
-        # Videos with empty videohost_id (failed uploads) are also skipped —
-        # they'll be retried via /backfill, not the scheduler.
+        # Skip if already processed — NO EXCEPTIONS.
+        # If a video was deleted on VideoHost by the user, it stays in
+        # processed_videos and is NOT re-downloaded. This is intentional:
+        # user deletion should be respected.
+        # Use /backfill to force re-download if needed.
         existing = await db.get_processed_video(yt_id)
-        if existing:
-            vh_id_old = existing.get("videohost_id", "") or ""
-            if vh_id_old:
-                # Only re-upload if we can confirm the video is gone.
-                # But don't check every time — only if uploaded more than 1 hour ago
-                # (avoids hammering VideoHost API on every scheduler run).
-                import os
-                check_interval = int(os.environ.get("VIDEO_EXISTS_CHECK_INTERVAL", "3600"))
-                uploaded_at = existing.get("uploaded_at", "")
-                should_check = False
-                if not uploaded_at:
-                    should_check = True
-                else:
-                    try:
-                        from datetime import datetime, timezone
-                        # Parse SQLite datetime format
-                        dt = datetime.strptime(uploaded_at, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                        age = (datetime.now(tz=timezone.utc) - dt).total_seconds()
-                        should_check = age > check_interval
-                    except Exception:
-                        should_check = True
-
-                if should_check:
-                    exists = await video_exists(vh_id_old)
-                    if not exists:
-                        logger.info("Video %s (%s) was deleted on VideoHost — re-uploading",
-                                    yt_id, vh_id_old)
-                        await db.unmark_video_processed(yt_id)
-                        existing = None
-            # If videohost_id is empty (failed upload), skip — don't re-download
-            # on every scheduler run. User can use /backfill to retry.
         if existing:
             continue
 
