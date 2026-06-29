@@ -35,6 +35,40 @@ async def _request(method: str, path: str, **kwargs) -> dict | None:
         return None
 
 
+async def download_thumbnail(url: str, tmp_dir: str = "/tmp/yt2tg") -> str | None:
+    """Download thumbnail image from URL to a temp file.
+    Returns path to the downloaded file, or None on failure.
+    The bot VPS has access to YouTube, so this works even when VH VPS can't reach YouTube.
+    """
+    import aiohttp
+    os.makedirs(tmp_dir, exist_ok=True)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    logger.warning("Thumbnail download failed %d: %s", resp.status, url)
+                    return None
+                data = await resp.read()
+                if not data:
+                    return None
+                # Determine extension from URL or content-type
+                ct = resp.headers.get("content-type", "")
+                if "png" in ct:
+                    ext = ".png"
+                elif "webp" in ct:
+                    ext = ".webp"
+                else:
+                    ext = ".jpg"
+                path = os.path.join(tmp_dir, f"thumb_{hash(url) & 0xFFFFFFFF}{ext}")
+                with open(path, "wb") as f:
+                    f.write(data)
+                logger.info("Downloaded thumbnail: %s → %s (%d bytes)", url[:60], path, len(data))
+                return path
+    except Exception as e:
+        logger.warning("Thumbnail download error: %s", e)
+        return None
+
+
 async def upload_video(file_path: str, title: str,
                        playlist_id: str | None = None,
                        published_at: str = "",
@@ -43,21 +77,30 @@ async def upload_video(file_path: str, title: str,
     """Upload video to VideoHost. Returns response dict or None.
 
     published_at: optional ISO date string or YYYYMMDD (yt-dlp upload_date).
-    Stored on the Video record and used for chronological playlist sorting.
-    thumbnail_url: optional direct image URL (e.g. YouTube preview URL).
-    youtube_id: optional 11-char YouTube video ID — used to derive thumbnail
-                URL if thumbnail_url is not provided.
+    thumbnail_url: YouTube preview URL — will be DOWNLOADED by the bot
+    (which has YouTube access) and uploaded as a file to VideoHost.
+    youtube_id: optional 11-char YouTube video ID.
     """
     global current_status
     file_size = os.path.getsize(file_path)
     size_mb = file_size / (1024 * 1024)
 
+    # Download thumbnail to temp file (bot VPS has YouTube access)
+    thumb_path = None
+    if thumbnail_url:
+        thumb_path = await download_thumbnail(thumbnail_url)
+    if not thumb_path and youtube_id:
+        # Fallback: construct URL from youtube_id
+        fallback_url = f"https://img.youtube.com/vi/{youtube_id}/hqdefault.jpg"
+        thumb_path = await download_thumbnail(fallback_url)
+
     current_status.update({
         "task": "upload", "title": title,
         "progress": f"{size_mb:.1f} MB uploading...", "error": "",
     })
-    logger.info("Uploading to VideoHost: %s (%.1f MB) playlist=%s published_at=%s yt_id=%s",
-                title, size_mb, playlist_id, published_at or "-", youtube_id or "-")
+    logger.info("Uploading to VideoHost: %s (%.1f MB) playlist=%s published_at=%s yt_id=%s thumb=%s",
+                title, size_mb, playlist_id, published_at or "-", youtube_id or "-",
+                "yes" if thumb_path else "no")
 
     try:
         with open(file_path, "rb") as f:
@@ -68,10 +111,13 @@ async def upload_video(file_path: str, title: str,
                 form.add_field("playlistId", playlist_id)
             if published_at:
                 form.add_field("publishedAt", published_at)
-            if thumbnail_url:
-                form.add_field("thumbnailUrl", thumbnail_url)
             if youtube_id:
                 form.add_field("youtubeId", youtube_id)
+            # Upload thumbnail as file (not URL) — VideoHost stores it locally
+            if thumb_path:
+                form.add_field("thumbnailFile", open(thumb_path, "rb"),
+                               filename=f"thumb_{youtube_id or 'video'}.jpg",
+                               content_type="image/jpeg")
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
