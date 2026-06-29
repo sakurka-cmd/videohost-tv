@@ -175,10 +175,13 @@ def register_handlers(bot: AsyncTeleBot):
         await db.save_fsm_state(msg.from_user.id, States.SUB_ASK_URL, {})
         await bot.reply_to(
             msg,
-            "Отправьте ссылку на YouTube-канал:\n\n"
+            "Отправьте ссылку на YouTube-канал или на видео с этого канала:\n\n"
             "Примеры:\n"
             "  https://www.youtube.com/@channelName\n"
-            "  https://www.youtube.com/channel/UC...",
+            "  https://www.youtube.com/channel/UC...\n"
+            "  https://youtu.be/VIDEO_ID\n"
+            "  https://youtube.com/watch?v=VIDEO_ID\n\n"
+            "Если отправите ссылку на видео — бот определит канал автоматически.",
             reply_markup=cancel_keyboard(),
         )
 
@@ -614,24 +617,61 @@ def register_handlers(bot: AsyncTeleBot):
 
             if state == States.SUB_ASK_URL:
                 ch_id = extract_channel_id(text)
+                # If not a channel URL, check if it's a video URL —
+                # extract channel info from the video's metadata
                 if not ch_id:
-                    await bot.reply_to(msg, "Не удалось распознать канал. Попробуйте другую ссылку.")
-                    return
+                    yt_vid_id = extract_video_id(text)
+                    if yt_vid_id:
+                        await bot.reply_to(msg, "📦 Это ссылка на видео. Определяю канал...")
+                        try:
+                            vinfo = await get_video_info(text)
+                            if vinfo and vinfo.get("channel_id"):
+                                # Build channel URL from video metadata
+                                yt_channel_id = vinfo["channel_id"]
+                                channel_url = f"https://www.youtube.com/channel/{yt_channel_id}"
+                                text = channel_url  # use this for get_channel_info
+                                ch_id = yt_channel_id
+                                # Skip get_channel_info — we already have all data from video info
+                                from bot.downloader import clean_handle
+                                channel_handle = clean_handle(vinfo.get("uploader_id", "")) or \
+                                                 clean_handle(vinfo.get("uploader_url", "")) or \
+                                                 vinfo.get("channel", "") or yt_channel_id
+                                title = vinfo.get("channel", "") or channel_handle
+                                data["channel_id"] = channel_handle
+                                data["channel_handle"] = channel_handle
+                                data["channel_title"] = title
+                                data["youtube_channel_id"] = yt_channel_id
+                                data["original_url"] = text
+                                await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
+                                await bot.reply_to(
+                                    msg, f"Канал: {title}\nHandle: @{channel_handle}\nYouTube ID: {yt_channel_id}\n\nВыберите качество:",
+                                    reply_markup=quality_keyboard(),
+                                )
+                                return
+                            else:
+                                await bot.reply_to(msg, "Не удалось определить канал из ссылки на видео.")
+                                return
+                        except Exception as e:
+                            logger.error("get_video_info for channel detection error: %s", e)
+                            await bot.reply_to(msg, f"Ошибка при получении информации о видео: {e}")
+                            return
+                    else:
+                        await bot.reply_to(msg, "Не удалось распознать ссылку. Отправьте ссылку на канал или видео.")
+                        return
+
                 await bot.reply_to(msg, "Получаю информацию о канале...")
                 try:
                     info = await get_channel_info(text)
                 except Exception as e:
                     logger.error("get_channel_info error: %s", e)
                     info = None
-                # info from yt-dlp has: channel_id (UCxxxxx), channel_handle (without @),
-                # title (display name). Fallback to extract_channel_id if yt-dlp failed.
                 yt_channel_id = (info.get("channel_id") if info else "") or ""
                 channel_handle = (info.get("channel_handle") if info else "") or ch_id
                 title = (info.get("title") if info else "") or channel_handle
-                data["channel_id"] = channel_handle  # used as subscription channel_id (handle)
-                data["channel_handle"] = channel_handle  # used as playlist name
-                data["channel_title"] = title  # display name (for UI messages)
-                data["youtube_channel_id"] = yt_channel_id  # UCxxxxx (for /dl matching)
+                data["channel_id"] = channel_handle
+                data["channel_handle"] = channel_handle
+                data["channel_title"] = title
+                data["youtube_channel_id"] = yt_channel_id
                 data["original_url"] = text
                 await db.save_fsm_state(uid, States.SUB_ASK_QUALITY, data)
                 await bot.reply_to(
