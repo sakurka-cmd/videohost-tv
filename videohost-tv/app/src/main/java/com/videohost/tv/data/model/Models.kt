@@ -54,3 +54,29 @@ data class WatchProgress(
     val durationSec: Float? = null,
     val updatedAt: String? = null,
 )
+
+@Serializable
+data class VideoMark(
+    val watched: Boolean = false,
+    val favorite: Boolean = false,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class MarksBulkResponse(
+    val marks: List<MarksBulkEntry> = emptyList(),
+)
+
+@Serializable
+data class MarksBulkEntry(
+    val videoId: String,
+    val watched: Boolean = false,
+    val favorite: Boolean = false,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class MarkUpdateRequest(
+    val watched: Boolean? = null,
+    val favorite: Boolean? = null,
+)
