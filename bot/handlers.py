@@ -19,8 +19,10 @@ from bot.uploader import (
 from bot.keyboards import (
     quality_keyboard, yes_no_keyboard, cancel_keyboard, playlists_keyboard,
     subscriptions_keyboard, main_menu_keyboard, backfill_period_keyboard,
+    filters_menu_keyboard,
 )
 from bot.config import ADMIN_IDS, QUALITY_LABELS, DEFAULT_QUALITY
+from bot.filters import format_filter_for_display
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,7 @@ def register_handlers(bot: AsyncTeleBot):
         "📦 Архив за период": "/backfill",
         "📋 Мои подписки": "/list",
         "🎚 Плейлисты": "/playlists",
+        "🔍 Фильтры": "/filters",
         "📊 Статус": "/status",
         "⏹ Отменить": "/cancel",
         "❓ Помощь": "/help",
@@ -76,6 +79,8 @@ def register_handlers(bot: AsyncTeleBot):
             await cmd_list(msg)
         elif cmd == "/playlists":
             await cmd_playlists(msg)
+        elif cmd == "/filters":
+            await cmd_filters(msg)
         elif cmd == "/status":
             await cmd_status(msg)
         elif cmd == "/cancel":
@@ -95,12 +100,13 @@ def register_handlers(bot: AsyncTeleBot):
             "📦 Архив за период — скачать старые видео (7/30/90/180/365 дней)\n"
             "📋 Мои подписки — список подписок\n"
             "🎚 Плейлисты — плейлисты VideoHost\n"
+            "🔍 Фильтры — белый/чёрный список по словам в названии\n"
             "📊 Статус — статус текущей загрузки\n"
             "⏹ Отменить — остановить текущую загрузку\n\n"
             "Качество: 480p, 720p (по умолчанию), 1080p, 4K\n\n"
             "Команды тоже работают:\n"
             "  /subscribe, /dl, /dl_playlist, /backfill, /list, /playlists,\n"
-            "  /status, /cancel, /unsub, /quality",
+            "  /filters, /status, /cancel, /unsub, /quality",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -284,10 +290,21 @@ def register_handlers(bot: AsyncTeleBot):
         for s in subs:
             status = "+" if s["active"] else "-"
             q = s.get("quality", "720")
+            white = s.get("white_filter", "") or ""
+            black = s.get("black_filter", "") or ""
+            filter_tag = ""
+            if white or black:
+                tags = []
+                if white:
+                    tags.append(f"✅{format_filter_for_display(white, max_items=2)}")
+                if black:
+                    tags.append(f"🚫{format_filter_for_display(black, max_items=2)}")
+                filter_tag = f" [{', '.join(tags)}]"
             lines.append(
-                f"  {status} #{s['id']} {s.get('channel_title', s['channel_id'])} [{q}p]"
+                f"  {status} #{s['id']} {s.get('channel_title', s['channel_id'])} [{q}p]{filter_tag}"
             )
         lines.append("\n/unsub — удалить подписку")
+        lines.append("/filters — настроить фильтры")
         await bot.reply_to(msg, "\n".join(lines))
 
     # ═══════════════════════════════════════════════════════
@@ -327,6 +344,32 @@ def register_handlers(bot: AsyncTeleBot):
             return
         await db.save_fsm_state(msg.from_user.id, States.QUALITY_SELECT, {})
         await bot.reply_to(msg, "Выберите подписку:", reply_markup=kb)
+
+    # ═══════════════════════════════════════════════════════
+    #  /filters — white/black list filters per subscription
+    # ═══════════════════════════════════════════════════════
+    @bot.message_handler(commands=["filters"])
+    async def cmd_filters(msg: Message):
+        if not is_admin(msg.from_user.id):
+            await bot.reply_to(msg, "У вас нет доступа.")
+            return
+        subs = await db.list_subscriptions()
+        if not subs:
+            await bot.reply_to(msg, "Нет подписок.\nДобавьте: /subscribe")
+            return
+        kb = subscriptions_keyboard(subs)
+        if not kb:
+            await bot.reply_to(msg, "Нет подписок.")
+            return
+        await db.save_fsm_state(msg.from_user.id, States.FILTERS_SELECT_SUB, {})
+        await bot.reply_to(
+            msg,
+            "🔍 Выберите подписку для настройки фильтров:\n\n"
+            "• Белый список — видео скачиваются только если в названии есть хотя бы одно из слов\n"
+            "• Чёрный список — видео не скачиваются, если в названии есть любое из слов\n\n"
+            "Слова разделяются запятыми. Регистр не важен.",
+            reply_markup=kb,
+        )
 
     # ── Callback query handler ──────────────────────────────
     @bot.callback_query_handler(func=lambda call: True)
@@ -534,6 +577,78 @@ def register_handlers(bot: AsyncTeleBot):
                 await db.save_fsm_state(uid, States.BACKFILL_ASK_PERIOD, data)
                 return
 
+            # ── Filters: subscription selected → show filter menu ──
+            if data_str.startswith("sub:") and state == States.FILTERS_SELECT_SUB:
+                sub_id = int(data_str.split(":")[1])
+                sub = await db.get_subscription(sub_id)
+                if not sub:
+                    await bot.answer_callback_query(call.id, "Подписка не найдена")
+                    return
+                data["sub_id"] = sub_id
+                white = sub.get("white_filter", "") or ""
+                black = sub.get("black_filter", "") or ""
+                title = sub.get("channel_title", sub.get("channel_id", ""))
+                await bot.edit_message_text(
+                    f"🔍 Фильтры для подписки #{sub_id}\n"
+                    f"Канал: {title}\n\n"
+                    f"✅ Белый список (только эти слова в названии):\n"
+                    f"  {format_filter_for_display(white)}\n\n"
+                    f"🚫 Чёрный список (эти слова блокируют загрузку):\n"
+                    f"  {format_filter_for_display(black)}\n\n"
+                    f"Пустой список = фильтр отключен.",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=filters_menu_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.FILTERS_MENU, data)
+                return
+
+            # ── Filters: edit white list → ask for text input ──
+            if data_str == "fw:edit" and state == States.FILTERS_MENU:
+                await bot.edit_message_text(
+                    "✅ Введите новый белый список.\n\n"
+                    "Слова через запятую. Видео будут скачиваться только если "
+                    "в названии есть хотя бы одно из слов.\n"
+                    "Пустое сообщение или '-' = отключить белый список.\n\n"
+                    "Пример: tutorial,обзор,распаковка",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=cancel_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.FILTERS_ASK_WHITE, data)
+                await bot.answer_callback_query(call.id)
+                return
+
+            # ── Filters: edit black list → ask for text input ──
+            if data_str == "fb:edit" and state == States.FILTERS_MENU:
+                await bot.edit_message_text(
+                    "🚫 Введите новый чёрный список.\n\n"
+                    "Слова через запятую. Видео НЕ будут скачиваться, если в названии "
+                    "есть любое из этих слов.\n"
+                    "Пустое сообщение или '-' = отключить чёрный список.\n\n"
+                    "Пример: shorts,short,премьера",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=cancel_keyboard(),
+                )
+                await db.save_fsm_state(uid, States.FILTERS_ASK_BLACK, data)
+                await bot.answer_callback_query(call.id)
+                return
+
+            # ── Filters: clear both ──
+            if data_str == "fc:clear" and state == States.FILTERS_MENU:
+                sub_id = data.get("sub_id")
+                if sub_id:
+                    await db.update_subscription_filters(sub_id, "", "")
+                await db.clear_fsm_state(uid)
+                await bot.edit_message_text(
+                    "🧹 Фильтры очищены.",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                )
+                await bot.answer_callback_query(call.id, "Очищено")
+                return
+
             if data_str.startswith("q:") and state == States.QUALITY_VALUE:
                 quality = data_str.split(":")[1]
                 if quality not in QUALITY_LABELS:
@@ -736,6 +851,47 @@ def register_handlers(bot: AsyncTeleBot):
                     f"Пожалуйста, создайте плейлист \"{text}\" в VideoHost и вернитесь.",
                     reply_markup=cancel_keyboard(),
                 )
+
+            # ── Filters: text input for white/black list ──
+            elif state == States.FILTERS_ASK_WHITE:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.reply_to(msg, "Ошибка: подписка не выбрана. Начните заново: /filters")
+                    await db.clear_fsm_state(uid)
+                    return
+                # Treat empty or '-' as "disable"
+                new_white = "" if (text in ("", "-", "—")) else text
+                # Fetch current black to preserve it
+                sub = await db.get_subscription(sub_id)
+                cur_black = sub.get("black_filter", "") or "" if sub else ""
+                await db.update_subscription_filters(sub_id, new_white, cur_black)
+                await db.clear_fsm_state(uid)
+                await bot.reply_to(
+                    msg,
+                    f"✅ Белый список обновлён:\n  {format_filter_for_display(new_white)}\n\n"
+                    f"🚫 Чёрный список (без изменений):\n  {format_filter_for_display(cur_black)}",
+                    reply_markup=main_menu_keyboard(),
+                )
+                return
+
+            elif state == States.FILTERS_ASK_BLACK:
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.reply_to(msg, "Ошибка: подписка не выбрана. Начните заново: /filters")
+                    await db.clear_fsm_state(uid)
+                    return
+                new_black = "" if (text in ("", "-", "—")) else text
+                sub = await db.get_subscription(sub_id)
+                cur_white = sub.get("white_filter", "") or "" if sub else ""
+                await db.update_subscription_filters(sub_id, cur_white, new_black)
+                await db.clear_fsm_state(uid)
+                await bot.reply_to(
+                    msg,
+                    f"✅ Белый список (без изменений):\n  {format_filter_for_display(cur_white)}\n\n"
+                    f"🚫 Чёрный список обновлён:\n  {format_filter_for_display(new_black)}",
+                    reply_markup=main_menu_keyboard(),
+                )
+                return
 
         except Exception as e:
             logger.exception("handle_text unhandled error: %s", e)

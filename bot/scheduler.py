@@ -10,6 +10,7 @@ from bot import database as db
 from bot.downloader import extract_video_id, download_video, cleanup_file, current_status
 from bot.uploader import upload_video, sort_playlist, video_exists
 from bot.config import CHECK_INTERVAL
+from bot.filters import should_download
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ async def process_subscription(sub: dict) -> int:
     playlist_id = sub["playlist_id"]
     quality = sub["quality"]
     sub_id = sub["id"]
+    white_filter = sub.get("white_filter", "") or ""
+    black_filter = sub.get("black_filter", "") or ""
 
     feed = get_channel_feed(feed_id)
     if not feed:
@@ -63,6 +66,13 @@ async def process_subscription(sub: dict) -> int:
             continue
 
         title = entry.get("title", "Untitled")
+
+        # Apply white/black list filters (skip silently — don't mark as processed,
+        # so if user later changes filters, the video can still be downloaded).
+        if not should_download(title, white_filter, black_filter):
+            logger.info("Filter skip: %s (%s) — white=%r black=%r",
+                        title, yt_id, white_filter, black_filter)
+            continue
 
         # Skip videos older than 7 days
         published = entry.get("published_parsed")

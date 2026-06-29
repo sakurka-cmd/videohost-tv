@@ -73,6 +73,14 @@ async def init_db() -> aiosqlite.Connection:
         await _db.execute("ALTER TABLE subscriptions ADD COLUMN youtube_channel_id TEXT DEFAULT ''")
     except Exception:
         pass  # Column already exists
+    try:
+        await _db.execute("ALTER TABLE subscriptions ADD COLUMN white_filter TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        await _db.execute("ALTER TABLE subscriptions ADD COLUMN black_filter TEXT DEFAULT ''")
+    except Exception:
+        pass
     await _db.commit()
     return _db
 
@@ -192,6 +200,20 @@ async def delete_subscription(sub_id: int):
 async def update_subscription_quality(sub_id: int, quality: str):
     db = get_db()
     await db.execute("UPDATE subscriptions SET quality=? WHERE id=?", (quality, sub_id))
+    await db.commit()
+
+
+async def update_subscription_filters(sub_id: int, white_filter: str, black_filter: str):
+    """Update the white/black list filters for a subscription.
+
+    Both are comma-separated lists of substrings. Empty string = filter disabled.
+    Stored as-is (lowercased on write for case-insensitive matching).
+    """
+    db = get_db()
+    await db.execute(
+        "UPDATE subscriptions SET white_filter=?, black_filter=? WHERE id=?",
+        (white_filter.lower().strip(), black_filter.lower().strip(), sub_id),
+    )
     await db.commit()
 
 

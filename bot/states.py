@@ -28,3 +28,8 @@ class States(str, Enum):
     # Backfill flow (download archive for existing subscription)
     BACKFILL_SELECT_SUB = "backfill_select_sub"
     BACKFILL_ASK_PERIOD = "backfill_ask_period"
+    # Filters flow (white/black list per subscription)
+    FILTERS_SELECT_SUB = "filters_select_sub"
+    FILTERS_MENU = "filters_menu"
+    FILTERS_ASK_WHITE = "filters_ask_white"
+    FILTERS_ASK_BLACK = "filters_ask_black"

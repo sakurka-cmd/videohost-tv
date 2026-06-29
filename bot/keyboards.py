@@ -70,6 +70,16 @@ def backfill_period_keyboard() -> InlineKeyboardMarkup:
     return ikm
 
 
+def filters_menu_keyboard() -> InlineKeyboardMarkup:
+    """Menu for editing a subscription's filters."""
+    ikm = InlineKeyboardMarkup()
+    ikm.row(InlineKeyboardButton("✏️ Изменить белый список", callback_data="fw:edit"))
+    ikm.row(InlineKeyboardButton("✏️ Изменить чёрный список", callback_data="fb:edit"))
+    ikm.row(InlineKeyboardButton("🧹 Очистить оба", callback_data="fc:clear"))
+    ikm.row(InlineKeyboardButton("✅ Готово", callback_data="cancel"))
+    return ikm
+
+
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add(
@@ -85,10 +95,11 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton("🎚 Плейлисты"),
     )
     kb.add(
+        KeyboardButton("🔍 Фильтры"),
         KeyboardButton("📊 Статус"),
-        KeyboardButton("⏹ Отменить"),
     )
     kb.add(
+        KeyboardButton("⏹ Отменить"),
         KeyboardButton("❓ Помощь"),
     )
     return kb
