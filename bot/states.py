@@ -21,3 +21,7 @@ class States(str, Enum):
     QUALITY_VALUE = "quality_value"
     # Playlist creation
     PLAYLIST_ASK_NAME = "playlist_ask_name"
+    # YouTube playlist download flow
+    DLPL_ASK_URL = "dlpl_ask_url"
+    DLPL_ASK_QUALITY = "dlpl_ask_quality"
+    DLPL_ASK_PERIOD = "dlpl_ask_period"

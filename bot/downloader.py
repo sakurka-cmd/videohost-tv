@@ -21,6 +21,10 @@ CHANNEL_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?youtube\.com/(?:channel/|@|c/)([a-zA-Z0-9_.-]+)"
 )
 
+YOUTUBE_PLAYLIST_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?youtube\.com/.*[?&]list=([a-zA-Z0-9_-]+)"
+)
+
 YTDLP_BIN = shutil.which("yt-dlp") or "yt-dlp"
 
 # Global status for /status command
@@ -264,3 +268,55 @@ def cleanup_file(path: str):
             logger.info("Cleaned up: %s", path)
     except OSError as e:
         logger.warning("Cleanup failed for %s: %s", path, e)
+
+def extract_playlist_id(url: str) -> str | None:
+    m = YOUTUBE_PLAYLIST_RE.search(url)
+    return m.group(1) if m else None
+
+
+async def get_youtube_playlist_info(playlist_url: str) -> dict | None:
+    """Get YouTube playlist title + list of videos using yt-dlp --flat-playlist.
+
+    Returns: {"title": "...", "videos": [{"id":..., "title":..., "upload_date":"YYYYMMDD", "url":...}, ...]}
+    or None on failure.
+    """
+    import json as _json
+    # First get the playlist title via --dump-json (first item has playlist metadata)
+    cmd_title = [
+        YTDLP_BIN, "--flat-playlist", "--dump-json",
+        "--playlist-items", "0",
+        "--no-warnings",
+        playlist_url,
+    ]
+    playlist_title = "YouTube Playlist"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_title, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+        for line in stdout.decode().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = _json.loads(line)
+                # Playlist title is in the "playlist" field or we get it from --print
+                if "playlist" in item:
+                    playlist_title = item["playlist"]
+                    break
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Get all video entries
+    videos = await list_channel_videos(playlist_url, max_count=200)
+    if not videos:
+        # list_channel_videos tries RSS first which won't work for playlists.
+        # Use flat-playlist directly.
+        videos = await _list_channel_videos_flat(playlist_url, max_count=200)
+
+    return {
+        "title": playlist_title,
+        "videos": videos or [],
+    }

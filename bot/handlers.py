@@ -11,6 +11,7 @@ from bot.states import States
 from bot.downloader import (
     download_video, extract_video_id, extract_channel_id,
     get_video_info, get_channel_info, cleanup_file, current_status,
+    extract_playlist_id, get_youtube_playlist_info,
 )
 from bot.uploader import (
     upload_video, list_playlists, find_or_create_playlist, sort_playlist, video_exists,
@@ -46,6 +47,7 @@ def register_handlers(bot: AsyncTeleBot):
     BUTTON_ALIASES = {
         "🔔 Подписка": "/subscribe",
         "⬇ Скачать видео": "/dl",
+        "📂 YouTube плейлист": "/dl_playlist",
         "📦 Архив за период": "/backfill",
         "📋 Мои подписки": "/list",
         "🎚 Плейлисты": "/playlists",
@@ -58,13 +60,13 @@ def register_handlers(bot: AsyncTeleBot):
     async def handle_menu_button(msg: Message):
         """Convert reply keyboard button text to the corresponding command."""
         msg.text = BUTTON_ALIASES[msg.text]
-        # Re-dispatch: just call the command handler directly by checking
-        # what the alias maps to
         cmd = BUTTON_ALIASES.get(msg.text, "")
         if cmd == "/subscribe":
             await cmd_subscribe(msg)
         elif cmd == "/dl":
             await cmd_dl(msg)
+        elif cmd == "/dl_playlist":
+            await cmd_dl_playlist(msg)
         elif cmd == "/backfill":
             await cmd_backfill(msg)
         elif cmd == "/list":
@@ -86,6 +88,7 @@ def register_handlers(bot: AsyncTeleBot):
             "🎬 UTube Bot — сохранение видео с YouTube в VideoHost\n\n"
             "🔔 Подписка — авто-загрузка новых видео с канала\n"
             "⬇ Скачать видео — разовая загрузка по ссылке\n"
+            "📂 YouTube плейлист — скачать весь плейлист\n"
             "📦 Архив за период — скачать старые видео (7/30/90/180/365 дней)\n"
             "📋 Мои подписки — список подписок\n"
             "🎚 Плейлисты — плейлисты VideoHost\n"
@@ -93,7 +96,7 @@ def register_handlers(bot: AsyncTeleBot):
             "⏹ Отменить — остановить текущую загрузку\n\n"
             "Качество: 480p, 720p (по умолчанию), 1080p, 4K\n\n"
             "Команды тоже работают:\n"
-            "  /subscribe, /dl, /backfill, /list, /playlists,\n"
+            "  /subscribe, /dl, /dl_playlist, /backfill, /list, /playlists,\n"
             "  /status, /cancel, /unsub, /quality",
             reply_markup=main_menu_keyboard(),
         )
@@ -162,6 +165,24 @@ def register_handlers(bot: AsyncTeleBot):
         await bot.reply_to(
             msg,
             "Отправьте ссылку на YouTube-видео:",
+            reply_markup=cancel_keyboard(),
+        )
+
+    # ═══════════════════════════════════════════════════════
+    #  /dl_playlist — download YouTube playlist
+    # ═══════════════════════════════════════════════════════
+    @bot.message_handler(commands=["dl_playlist"])
+    async def cmd_dl_playlist(msg: Message):
+        if not is_admin(msg.from_user.id):
+            await bot.reply_to(msg, "У вас нет доступа.")
+            return
+        await db.save_fsm_state(msg.from_user.id, States.DLPL_ASK_URL, {})
+        await bot.reply_to(
+            msg,
+            "📂 Отправьте ссылку на YouTube-плейлист:\n\n"
+            "Пример:\n"
+            "  https://www.youtube.com/playlist?list=PLxxxxxxx\n"
+            "  https://www.youtube.com/watch?v=XXX&list=PLxxxxxxx",
             reply_markup=cancel_keyboard(),
         )
 
@@ -246,7 +267,7 @@ def register_handlers(bot: AsyncTeleBot):
             # ── Quality selection (shared for subscribe and dl) ──
             # NOTE: only handle SUB_ASK_QUALITY / DL_ASK_QUALITY here.
             # QUALITY_VALUE (changing existing sub quality) is handled below.
-            if data_str.startswith("q:") and state in (States.SUB_ASK_QUALITY, States.DL_ASK_QUALITY):
+            if data_str.startswith("q:") and state in (States.SUB_ASK_QUALITY, States.DL_ASK_QUALITY, States.DLPL_ASK_QUALITY):
                 quality = data_str.split(":")[1]
                 if quality not in QUALITY_LABELS:
                     await bot.answer_callback_query(call.id, "Неизвестное качество")
@@ -269,8 +290,6 @@ def register_handlers(bot: AsyncTeleBot):
                     )
                     await db.save_fsm_state(uid, States.SUB_CONFIRM, data)
                 elif state == States.DL_ASK_QUALITY:
-                    # Skip playlist selection — start download immediately,
-                    # playlist will be auto-created from video's channel name.
                     title = data.get("title", "Видео")
                     await bot.edit_message_text(
                         f"Качество: {QUALITY_LABELS[quality]}\n\n"
@@ -281,6 +300,18 @@ def register_handlers(bot: AsyncTeleBot):
                     )
                     await db.clear_fsm_state(uid)
                     asyncio.create_task(_process_oneoff(uid, data))
+                elif state == States.DLPL_ASK_QUALITY:
+                    pl_title = data.get("playlist_title", "YouTube Playlist")
+                    await bot.edit_message_text(
+                        f"Качество: {QUALITY_LABELS[quality]}\n"
+                        f"Плейлист: {pl_title}\n"
+                        f"Видео: {data.get('video_count', '?')}\n\n"
+                        f"Выберите период загрузки:",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        reply_markup=backfill_period_keyboard(),
+                    )
+                    await db.save_fsm_state(uid, States.DLPL_ASK_PERIOD, data)
                 return
 
             # ── Playlist selection ──
@@ -419,6 +450,50 @@ def register_handlers(bot: AsyncTeleBot):
                 await bot.answer_callback_query(call.id, "Готово!")
                 return
 
+            # ═══════════════════════════════════════════════════════
+            #  Backfill: period selection (bp:) for BACKFILL_ASK_PERIOD
+            # ═══════════════════════════════════════════════════════
+            if data_str.startswith("bp:") and state == States.BACKFILL_ASK_PERIOD:
+                period = data_str.split(":")[1]
+                sub_id = data.get("sub_id")
+                if not sub_id:
+                    await bot.answer_callback_query(call.id, "Сессия устарела")
+                    return
+                period_name = {
+                    "7": "7 дней", "30": "30 дней", "90": "90 дней",
+                    "180": "180 дней", "365": "1 год", "all": "всё время",
+                }.get(period, period)
+                await db.clear_fsm_state(uid)
+                await bot.edit_message_text(
+                    f"🚀 Запускаю загрузку архива за {period_name}...\n"
+                    f"Это может занять несколько минут. Я сообщу о результате.\n"
+                    f"Чтобы отменить — /cancel",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                )
+                asyncio.create_task(_process_backfill(uid, sub_id, period))
+                return
+
+            # ═══════════════════════════════════════════════════════
+            #  YouTube playlist download: period selection (bp:) for DLPL_ASK_PERIOD
+            # ═══════════════════════════════════════════════════════
+            if data_str.startswith("bp:") and state == States.DLPL_ASK_PERIOD:
+                period = data_str.split(":")[1]
+                period_name = {
+                    "7": "7 дней", "30": "30 дней", "90": "90 дней",
+                    "180": "180 дней", "365": "1 год", "all": "всё время",
+                }.get(period, period)
+                await db.clear_fsm_state(uid)
+                await bot.edit_message_text(
+                    f"🚀 Запускаю загрузку плейлиста за {period_name}...\n"
+                    f"Это может занять несколько минут. Я сообщу о результате.\n"
+                    f"Чтобы отменить — /cancel",
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                )
+                asyncio.create_task(_process_dl_playlist(uid, data, period))
+                return
+
             await bot.answer_callback_query(call.id, "")
 
         except Exception as e:
@@ -484,6 +559,33 @@ def register_handlers(bot: AsyncTeleBot):
                 await db.save_fsm_state(uid, States.DL_ASK_QUALITY, data)
                 await bot.reply_to(
                     msg, f"Видео: {title}\nВыберите качество:",
+                    reply_markup=quality_keyboard(),
+                )
+
+            elif state == States.DLPL_ASK_URL:
+                pl_id = extract_playlist_id(text)
+                if not pl_id:
+                    await bot.reply_to(msg, "Не удалось распознать ссылку на плейлист. Ищите параметр ?list=PL...")
+                    return
+                await bot.reply_to(msg, "📂 Получаю информацию о плейлисте...")
+                try:
+                    pl_info = await get_youtube_playlist_info(text)
+                except Exception as e:
+                    logger.error("get_youtube_playlist_info error: %s", e)
+                    pl_info = None
+                if not pl_info or not pl_info.get("videos"):
+                    await bot.reply_to(msg, "Не удалось получить список видео из плейлиста.")
+                    return
+                pl_title = pl_info["title"]
+                data["playlist_url"] = text
+                data["playlist_title"] = pl_title
+                data["video_count"] = len(pl_info["videos"])
+                await db.save_fsm_state(uid, States.DLPL_ASK_QUALITY, data)
+                await bot.reply_to(
+                    msg,
+                    f"📂 Плейлист: {pl_title}\n"
+                    f"Видео в плейлисте: {len(pl_info['videos'])}\n\n"
+                    f"Выберите качество:",
                     reply_markup=quality_keyboard(),
                 )
 
@@ -613,3 +715,164 @@ def register_handlers(bot: AsyncTeleBot):
             current_status.update({
                 "task": "", "progress": "", "error": "", "url": "", "title": ""
             })
+    # ── Background task: download YouTube playlist ────────────
+    async def _process_dl_playlist(user_id: int, data: dict, period: str):
+        """Download all videos from a YouTube playlist into a VideoHost playlist
+        named 'ytpls_<playlist_title>'.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        backfill_tasks[user_id] = {"sub_id": 0, "period": period, "cancel": False}
+
+        try:
+            playlist_url = data["playlist_url"]
+            pl_title = data.get("playlist_title", "YouTube Playlist")
+            quality = data.get("quality", DEFAULT_QUALITY)
+            vh_playlist_name = f"ytpls_{pl_title}"
+
+            # Create VideoHost playlist
+            pl = await find_or_create_playlist(vh_playlist_name)
+            if not pl or not pl.get("id"):
+                await bot.send_message(user_id, f"❌ Не удалось создать плейлист «{vh_playlist_name}»")
+                return
+            playlist_id = pl["id"]
+
+            await bot.send_message(
+                user_id,
+                f"📡 Получаю список видео из плейлиста «{pl_title}»...\n"
+                f"Плейлист на VideoHost: «{vh_playlist_name}»\n"
+                f"Чтобы отменить — /cancel",
+            )
+
+            # Get all videos from YouTube playlist
+            pl_info = await get_youtube_playlist_info(playlist_url)
+            if not pl_info or not pl_info.get("videos"):
+                await bot.send_message(user_id, "❌ Не удалось получить видео из плейлиста.")
+                return
+
+            all_videos = pl_info["videos"]
+
+            # Filter by period
+            if period == "all":
+                cutoff = None
+                period_label = "всё время"
+            else:
+                days = int(period)
+                cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+                period_label = f"{days} дн."
+
+            in_period = []
+            skipped_no_date = 0
+            too_old = 0
+            for v in all_videos:
+                upload_date_str = v.get("upload_date", "")
+                if not upload_date_str or len(upload_date_str) != 8:
+                    # For playlists, include videos without date (unlike backfill)
+                    in_period.append(v)
+                    continue
+                try:
+                    pub_dt = datetime.strptime(upload_date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+                    if cutoff and pub_dt < cutoff:
+                        too_old += 1
+                        continue
+                    v["_pub_dt"] = pub_dt
+                    in_period.append(v)
+                except Exception:
+                    in_period.append(v)
+
+            # Filter out already processed
+            to_download = []
+            already_done = 0
+            for v in in_period:
+                existing = await db.get_processed_video(v["id"])
+                if existing:
+                    vh_id_old = existing.get("videohost_id", "") or ""
+                    if vh_id_old and not await video_exists(vh_id_old):
+                        await db.unmark_video_processed(v["id"])
+                        to_download.append(v)
+                    else:
+                        already_done += 1
+                else:
+                    to_download.append(v)
+
+            to_download.sort(key=lambda x: x.get("_pub_dt") or datetime.min.replace(tzinfo=timezone.utc))
+
+            summary = (
+                f"📊 Плейлист: {pl_title}\n"
+                f"Всего видео: {len(all_videos)}\n"
+                f"В периоде «{period_label}»: {len(in_period)}\n"
+            )
+            if too_old > 0:
+                summary += f"Старше периода: {too_old}\n"
+            summary += f"Уже загружено: {already_done}\n"
+            summary += f"К загрузке: {len(to_download)}"
+            await bot.send_message(user_id, summary)
+
+            if not to_download:
+                await bot.send_message(user_id, "✅ Нечего загружать — все видео уже есть.")
+                return
+
+            uploaded_count = 0
+            failed_count = 0
+            for i, v in enumerate(to_download, 1):
+                if backfill_tasks.get(user_id, {}).get("cancel"):
+                    await bot.send_message(
+                        user_id,
+                        f"⏹ Загрузка отменена.\nЗагружено: {uploaded_count}, ошибок: {failed_count}",
+                    )
+                    break
+
+                yt_id = v["id"]
+                title = v.get("title", yt_id)
+                url = v.get("url") or f"https://www.youtube.com/watch?v={yt_id}"
+                pub_dt = v.get("_pub_dt")
+                published_at = pub_dt.strftime("%Y%m%d") if pub_dt else ""
+
+                try:
+                    await bot.send_message(user_id, f"[{i}/{len(to_download)}] ⬇ {title}")
+
+                    file_path = await download_video(url, quality)
+                    if not file_path or file_path == "TOO_LARGE":
+                        if file_path == "TOO_LARGE":
+                            await db.mark_video_processed(yt_id, None, title, quality, "")
+                        failed_count += 1
+                        continue
+
+                    yt_thumb = f"https://img.youtube.com/vi/{yt_id}/hqdefault.jpg"
+                    result = await upload_video(
+                        file_path, title, playlist_id,
+                        published_at=published_at,
+                        thumbnail_url=yt_thumb,
+                        youtube_id=yt_id,
+                    )
+                    cleanup_file(file_path)
+
+                    if result:
+                        vh_id = result.get("id", "")
+                        await db.mark_video_processed(yt_id, None, title, quality, vh_id)
+                        uploaded_count += 1
+                        await sort_playlist(playlist_id)
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    logger.exception("dl_playlist error on %s: %s", yt_id, e)
+                    failed_count += 1
+
+            await bot.send_message(
+                user_id,
+                f"🏁 Загрузка плейлиста завершена!\n"
+                f"Плейлист: «{vh_playlist_name}»\n"
+                f"Загружено: {uploaded_count}\n"
+                f"Ошибок: {failed_count}\n"
+                f"Уже было: {already_done}",
+            )
+
+        except Exception as e:
+            logger.exception("_process_dl_playlist error: %s", e)
+            try:
+                await bot.send_message(user_id, f"Ошибка: {e}")
+            except Exception:
+                pass
+        finally:
+            backfill_tasks.pop(user_id, None)
+            current_status.update({"task": "", "progress": "", "error": "", "url": "", "title": ""})

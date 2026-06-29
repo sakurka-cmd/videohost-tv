@@ -77,15 +77,18 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton("⬇ Скачать видео"),
     )
     kb.add(
+        KeyboardButton("📂 YouTube плейлист"),
         KeyboardButton("📦 Архив за период"),
+    )
+    kb.add(
         KeyboardButton("📋 Мои подписки"),
-    )
-    kb.add(
         KeyboardButton("🎚 Плейлисты"),
-        KeyboardButton("📊 Статус"),
     )
     kb.add(
+        KeyboardButton("📊 Статус"),
         KeyboardButton("⏹ Отменить"),
+    )
+    kb.add(
         KeyboardButton("❓ Помощь"),
     )
     return kb
