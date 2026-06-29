@@ -59,8 +59,7 @@ def register_handlers(bot: AsyncTeleBot):
     @bot.message_handler(func=lambda m: m.text in BUTTON_ALIASES)
     async def handle_menu_button(msg: Message):
         """Convert reply keyboard button text to the corresponding command."""
-        msg.text = BUTTON_ALIASES[msg.text]
-        cmd = BUTTON_ALIASES.get(msg.text, "")
+        cmd = BUTTON_ALIASES[msg.text]  # e.g. "🔔 Подписка" -> "/subscribe"
         if cmd == "/subscribe":
             await cmd_subscribe(msg)
         elif cmd == "/dl":
