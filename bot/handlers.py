@@ -18,7 +18,7 @@ from bot.uploader import (
 )
 from bot.keyboards import (
     quality_keyboard, yes_no_keyboard, cancel_keyboard, playlists_keyboard,
-    subscriptions_keyboard, main_menu_keyboard,
+    subscriptions_keyboard, main_menu_keyboard, backfill_period_keyboard,
 )
 from bot.config import ADMIN_IDS, QUALITY_LABELS, DEFAULT_QUALITY
 

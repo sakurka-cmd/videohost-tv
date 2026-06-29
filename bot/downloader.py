@@ -261,6 +261,118 @@ async def download_video(url: str, quality: str = DEFAULT_QUALITY) -> str | None
         return None
 
 
+async def list_channel_videos(channel_url: str, max_count: int = 200) -> list[dict]:
+    """Fetch list of videos on a YouTube channel/playlist.
+
+    Tries RSS first (for channels with UC ID), then falls back to yt-dlp --flat-playlist.
+    """
+    # Try RSS for channel URLs with UC ID
+    from urllib.parse import urlparse
+    parsed = urlparse(channel_url)
+    path_parts = [p for p in parsed.path.split("/") if p]
+    channel_id = ""
+    if "channel" in path_parts:
+        idx = path_parts.index("channel")
+        if idx + 1 < len(path_parts):
+            channel_id = path_parts[idx + 1]
+    if channel_id and channel_id.startswith("UC"):
+        rss_videos = await _list_channel_videos_rss(channel_id)
+        if rss_videos:
+            if max_count > len(rss_videos):
+                flat_videos = await _list_channel_videos_flat(channel_url, max_count)
+                rss_ids = {v["id"] for v in rss_videos}
+                for v in flat_videos:
+                    if v["id"] not in rss_ids:
+                        rss_videos.append(v)
+                        rss_ids.add(v["id"])
+            return rss_videos[:max_count]
+    # Fallback: flat-playlist only
+    return await _list_channel_videos_flat(channel_url, max_count)
+
+
+async def _list_channel_videos_rss(channel_id: str) -> list[dict]:
+    """Fetch videos via YouTube RSS feed (up to 15 most recent WITH dates)."""
+    import feedparser
+    if not channel_id.startswith("UC"):
+        return []
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    try:
+        feed = feedparser.parse(feed_url)
+        if not feed.entries:
+            return []
+        results = []
+        for entry in feed.entries:
+            yt_url = entry.get("link", "")
+            yt_id = extract_video_id(yt_url)
+            if not yt_id:
+                continue
+            published = entry.get("published", "")
+            upload_date = ""
+            if published:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                    upload_date = dt.strftime("%Y%m%d")
+                except Exception:
+                    pass
+            results.append({
+                "id": yt_id,
+                "title": entry.get("title", "Untitled"),
+                "upload_date": upload_date,
+                "url": yt_url or f"https://www.youtube.com/watch?v={yt_id}",
+            })
+        return results
+    except Exception as e:
+        logger.warning("RSS fetch failed for %s: %s", channel_id, e)
+        return []
+
+
+async def _list_channel_videos_flat(channel_url: str, max_count: int = 200) -> list[dict]:
+    """Fetch videos via yt-dlp --flat-playlist."""
+    import json as _json
+    cmd = [
+        YTDLP_BIN, "--flat-playlist", "--dump-json",
+        "--playlist-items", f"1-{max_count}",
+        "--no-warnings",
+        channel_url,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        if proc.returncode != 0:
+            err = stderr.decode(errors="replace")[:500]
+            logger.error("yt-dlp flat-playlist failed for %s: %s", channel_url, err)
+            return []
+        results = []
+        for line in stdout.decode().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = _json.loads(line)
+            except Exception:
+                continue
+            vid = item.get("id", "")
+            if not vid:
+                continue
+            results.append({
+                "id": vid,
+                "title": item.get("title", "Untitled"),
+                "upload_date": item.get("upload_date") or "",
+                "url": item.get("url") or f"https://www.youtube.com/watch?v={vid}",
+            })
+        logger.info("flat-playlist returned %d videos for %s", len(results), channel_url)
+        return results
+    except asyncio.TimeoutError:
+        logger.error("yt-dlp flat-playlist timeout for %s", channel_url)
+        return []
+    except Exception as e:
+        logger.error("yt-dlp flat-playlist error: %s", e)
+        return []
+
+
 def cleanup_file(path: str):
     try:
         if path and os.path.exists(path):
