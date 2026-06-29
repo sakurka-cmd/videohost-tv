@@ -34,13 +34,16 @@ def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
 
 async def process_subscription(sub: dict) -> int:
     channel_id = sub["channel_id"]
+    # Prefer youtube_channel_id (UCxxxxx) for RSS — handles don't work with RSS feed
+    yt_channel_id = sub.get("youtube_channel_id", "") or ""
+    feed_id = yt_channel_id if yt_channel_id else channel_id
     playlist_id = sub["playlist_id"]
     quality = sub["quality"]
     sub_id = sub["id"]
 
-    feed = get_channel_feed(channel_id)
+    feed = get_channel_feed(feed_id)
     if not feed:
-        logger.warning("No feed entries for channel %s", channel_id)
+        logger.warning("No feed entries for channel %s (feed_id=%s)", channel_id, feed_id)
         return 0
 
     uploaded = 0
