@@ -134,3 +134,24 @@ app/src/main/java/com/videohost/tv/
 ## License
 
 MIT
+
+### v1.6.0 — 2026-06-29
+
+**Added:**
+- Sort direction toggle in home screen header (↑ Старые / ↓ Новые).
+- YouTube publish date shown in video cards (when available from API).
+- Thumbnail via `/api/videos/:id/thumbnail` endpoint instead of direct YouTube URL.
+- Auto-refresh every 30 seconds for new videos.
+- Per-playlist playback speed (0.5/1.0/1.25/1.5/1.75/2.0) via Menu key.
+- Autoplay toggle in Settings.
+- Backup rules for DataStore persistence across reinstalls.
+- Custom icon (user-provided) for launcher, banner, login, home screen.
+- LAUNCHER + LEANBACK_LAUNCHER categories.
+- JSON login with detailed error messages.
+- Cookie injection via OkHttpDataSource for video stream.
+
+**Fixed:**
+- D-pad + mouse simultaneous support (custom Compose overlay with onPreviewKeyEvent).
+- Video switch (up/down) — PlayerView.update attaches new player.
+- Update without uninstall (removed applicationIdSuffix).
+- App renamed to UTube.
