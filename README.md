@@ -48,6 +48,7 @@ bot/
 | `/unsub` | Отписаться от канала (inline-кнопки) |
 | `/quality` | Изменить качество подписки |
 | `/filters` | Настроить белый/чёрный список слов в названиях видео |
+| `/manage` | Единое inline-меню управления подпиской (отписка, фильтры, архив, качество, время жизни) |
 | `/playlists` | Список плейлистов VideoHost |
 | `/status` | Статус текущей загрузки |
 | `/cancel` | Отменить текущую операцию |
@@ -79,6 +80,38 @@ bot/
 ```
 Filter skip: <title> (<yt_id>) — white='...' black='...'
 ```
+
+### Управление подписками (/manage)
+
+Команда `/manage` открывает единое inline-меню для всех действий с подпиской:
+
+1. `/manage` → выбор подписки из списка
+2. Inline-меню с 5 действиями:
+   - 🗑 **Отписаться** — удалить подписку
+   - 🔍 **Фильтры** — белый/чёрный список слов
+   - 📦 **Архив** — backfill за период (7/30/90/180/365 дней или всё время)
+   - 🎚 **Качество** — изменить качество (480p/720p/1080p/4K)
+   - ⏱ **Время жизни** — управлять `lifetimeDays` плейлиста VideoHost
+
+«Время жизни просмотренных» — особенно важная опция: она связана с auto-cleanup в VideoHost. При `lifetimeDays > 0` видео, помеченные как «просмотренные», автоматически удаляются из VideoHost через N дней (избранные сохраняются). Бот вызывает `PUT /api/bot/playlists/[id]` с новым `lifetimeDays`.
+
+### Постоянная клавиатура
+
+Все основные команды доступны через reply-клавиатуру (emoji-кнопки):
+
+| Кнопка | Команда |
+|--------|---------|
+| 🔔 Подписка | `/subscribe` |
+| ⬇ Скачать видео | `/dl` |
+| 📂 YouTube плейлист | `/dl_playlist` |
+| 📦 Архив за период | `/backfill` |
+| 📋 Мои подписки | `/list` |
+| 🎚 Плейлисты | `/playlists` |
+| 📊 Статус | `/status` |
+| ⏹ Отменить | `/cancel` |
+| ❓ Помощь | `/help` |
+
+Кнопка «⚙️ Управление» (→ `/manage`) добавлена в клавиатуру в v1.7.0.
 
 ## Установка
 
@@ -175,8 +208,13 @@ sudo journalctl -u yt2tg-bot -f
 
 | Метод | Эндпоинт | Описание |
 |-------|---------|----------|
-| `POST` | `/api/bot/upload` | Загрузка видео (multipart: `file`, `title`, `playlistId`) |
-| `GET` | `/api/bot/playlists` | Список плейлистов (query: `?playlistId=...` для видео в плейлисте) |
+| `POST` | `/api/bot/upload` | Загрузка видео (multipart: `file`, `title`, `playlistId`, `publishedAt`, `thumbnailUrl`, `youtubeId`) |
+| `GET` | `/api/bot/playlists` | Список всех плейлистов |
+| `GET` | `/api/bot/playlists?playlistId=...` | Список видео в плейлисте (`id`, `title`, `streamUrl`, `order`) |
+| `POST` | `/api/bot/playlists` | Создание плейлиста (для `/dl_playlist` — плейлист `ytpls_<title>`) |
+| `PUT` | `/api/bot/playlists/[id]` | Обновление плейлиста (`name`, `description`, `lifetimeDays`) — используется `/manage` для времени жизни |
+| `POST` | `/api/bot/playlists/[id]/sort` | Сортировка видео в плейлисте по `publishedAt` |
+| `GET` | `/api/bot/videos/[id]` | Проверка существования видео в VideoHost (для дедупликации) |
 
 ## Безопасность
 
@@ -200,6 +238,21 @@ sudo journalctl -u yt2tg-bot -f
 ## Лицензия
 
 MIT
+
+## Changelog
+
+### v1.7.1 — 2026-06-30
+
+**Fixed:**
+- `get_channel_feed()` now retries up to 3 times with 10s backoff on transient empty RSS responses. YouTube occasionally returns an empty feed (cache refresh / brief outage); previously the scheduler logged a warning and gave up, missing any new videos until the next hourly check. For rarely-publishing channels this could age videos past the 7-day skip window and lose them forever.
+
+### v1.7.0 — 2026-06-29 (Batch 9 — UTube)
+
+**Added:**
+- `/manage` command — unified inline menu for all subscription actions (unsub, filters, backfill, quality, lifetime).
+- «⏱ Время жизни» action in `/manage` — manage `lifetimeDays` of the playlist via `PUT /api/bot/playlists/[id]`.
+- «⚙️ Управление» button in the reply keyboard.
+
 ### v1.6.0 — 2026-06-29
 
 **Added:**
