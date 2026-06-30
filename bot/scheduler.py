@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 import feedparser
@@ -14,6 +15,13 @@ from bot.filters import should_download
 
 logger = logging.getLogger(__name__)
 
+# YouTube RSS occasionally returns an empty feed (transient cache refresh
+# or brief outage). Retry a few times with backoff before giving up —
+# otherwise we silently miss new videos until the next hourly check,
+# which can age them past the 7-day skip window and lose them forever.
+FEED_RETRY_ATTEMPTS = 3
+FEED_RETRY_BACKOFF_SEC = 10
+
 
 def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
     if channel_id.startswith("@") or channel_id.startswith("UC"):
@@ -21,16 +29,30 @@ def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
     else:
         feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id=@{channel_id}"
 
-    try:
-        feed = feedparser.parse(feed_url)
-        if not feed.entries:
+    for attempt in range(1, FEED_RETRY_ATTEMPTS + 1):
+        try:
+            feed = feedparser.parse(feed_url)
+            if feed.entries:
+                return feed
+            # Empty feed — try search_query fallback (only for non-UC handles)
             if "@" not in channel_id and not channel_id.startswith("UC"):
-                feed_url = f"https://www.youtube.com/feeds/videos.xml?search_query={channel_id}"
-                feed = feedparser.parse(feed_url)
-        return feed if feed.entries else None
-    except Exception as e:
-        logger.error("RSS parse error for %s: %s", channel_id, e)
-        return None
+                search_url = f"https://www.youtube.com/feeds/videos.xml?search_query={channel_id}"
+                feed = feedparser.parse(search_url)
+                if feed.entries:
+                    return feed
+            # Empty on this attempt — retry unless this was the last one
+            if attempt < FEED_RETRY_ATTEMPTS:
+                logger.info("Empty RSS feed for %s (attempt %d/%d), retrying in %ds",
+                            channel_id, attempt, FEED_RETRY_ATTEMPTS, FEED_RETRY_BACKOFF_SEC)
+                time.sleep(FEED_RETRY_BACKOFF_SEC)
+        except Exception as e:
+            logger.error("RSS parse error for %s (attempt %d/%d): %s",
+                         channel_id, attempt, FEED_RETRY_ATTEMPTS, e)
+            if attempt < FEED_RETRY_ATTEMPTS:
+                time.sleep(FEED_RETRY_BACKOFF_SEC)
+    logger.warning("No feed entries for channel %s after %d attempts",
+                   channel_id, FEED_RETRY_ATTEMPTS)
+    return None
 
 
 async def process_subscription(sub: dict) -> int:
