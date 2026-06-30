@@ -23,7 +23,7 @@ from bot.keyboards import (
 )
 from bot.config import ADMIN_IDS, QUALITY_LABELS, DEFAULT_QUALITY
 from bot.filters import format_filter_for_display
-from bot.uploader import update_playlist_lifetime
+from bot.uploader import update_playlist_lifetime, get_playlist
 
 logger = logging.getLogger(__name__)
 
@@ -812,13 +812,14 @@ def register_handlers(bot: AsyncTeleBot):
                     await bot.answer_callback_query(call.id, "Подписка не найдена")
                     return
                 pl_id = sub.get("playlist_id", "") or ""
-                # Try to fetch current lifetime from VideoHost (best-effort)
+                # Fetch current lifetime from VideoHost (best-effort)
                 cur_lifetime = "?"
                 if pl_id:
                     try:
-                        from bot.uploader import list_playlist_items
-                        # We don't have a direct GET for playlist lifetime via bot API,
-                        # so just show the input prompt.
+                        pl = await get_playlist(pl_id)
+                        if pl is not None:
+                            lt = pl.get("lifetimeDays")
+                            cur_lifetime = f"{lt} дней" if lt else "отключено"
                     except Exception:
                         pass
                 await bot.edit_message_text(

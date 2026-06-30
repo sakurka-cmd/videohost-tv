@@ -257,6 +257,34 @@ async def reorder_playlist(playlist_id: str, items: list[dict]) -> bool:
     return True
 
 
+async def get_playlist(playlist_id: str) -> dict | None:
+    """Get playlist details (including lifetimeDays) via bot token API.
+
+    Args:
+        playlist_id: VideoHost playlist ID
+
+    Returns: {"id": "...", "name": "...", "lifetimeDays": ..., ...} or None on failure.
+    Used by /manage ⏱ Время жизни to display the current value before editing.
+    """
+    if not playlist_id:
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{VIDEOHOST_URL}/api/bot/playlists/{playlist_id}",
+                headers=_headers(),
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    err = await resp.text()
+                    logger.error("get_playlist failed %d: %s", resp.status, err[:300])
+                    return None
+    except Exception as e:
+        logger.error("get_playlist error: %s", e)
+        return None
+
+
 async def update_playlist_lifetime(playlist_id: str, lifetime_days: int | None) -> dict | None:
     """Set the watched-video lifetime (in days) for a playlist via bot token API.
 
