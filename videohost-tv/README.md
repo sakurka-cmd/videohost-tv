@@ -8,6 +8,7 @@ Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/vid
   - *Continue watching* — videos with a saved playback position
   - *Recently added* — last 20 uploads across all videos
   - One row per playlist (sorted by `PlaylistItem.order`, which the yt2tg bot sets chronologically by YouTube `publishedAt`)
+  - Playlists are grouped by `PlaylistGroup` (color + icon); ungrouped playlists appear at the bottom
 - **D-pad-controlled video player (Media3 ExoPlayer):**
   - `OK` / `Enter` — play / pause
   - `←` / `→` — seek ±10 seconds
@@ -15,9 +16,12 @@ Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/vid
   - `Back` — save progress and close the player
   - On video end: clears saved progress (so the next viewing starts from the beginning) and auto-advances to the next video
 - **Resume position sync** — automatically resumes from the saved position when a video is opened. Position is saved to the server every 5 seconds, so it stays in sync across web, mobile, and TV.
+- **Video marks** — toggle "watched" (`✓ Просм.`) and "favorite" (`★ Избр.`) from the player control bar. Marks are synced to the server (`/api/videos/{id}/marks`) and displayed as badges on thumbnails in the home screen (bulk-loaded via `/api/me/marks`).
+- **Mark all watched** — a `✓ Все просмотрено` button on every playlist row marks all videos in that playlist as watched (`POST /api/playlists/{id}/mark-all-watched`).
+- **Playback speed control** — cycle through 0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x via the player control bar. The selected speed is persisted per-playlist in DataStore and restored on next playback.
 - **Login screen** — username/password from VideoHost (cookie `vh_session` persisted in DataStore).
 - **Settings screen** — the VideoHost URL is configured on first launch and can be changed later via the Settings button on the home screen.
-- **YouTube thumbnails** — automatically used when a video has a `thumbnail` URL or a `youtubeId` (redirects to `img.youtube.com`).
+- **Thumbnails** — loaded from `/api/videos/{id}/thumbnail` (the backend serves a local file or generates one on-the-fly via ffmpeg; YouTube URLs are cleared by the backend since YouTube is blocked on the TV).
 
 ## Installation
 
@@ -96,17 +100,19 @@ app/src/main/java/com/videohost/tv/
 ├── MainActivity.kt                  # Entry point, dark MaterialTheme
 ├── data/
 │   ├── api/
-│   │   ├── VideoHostApi.kt          # Retrofit interface
-│   │   └── VideoHostRepository.kt   # DataStore + OkHttp + cookie management
-│   └── model/Models.kt              # DTOs
+│   │   ├── VideoHostApi.kt          # Retrofit interface (15 endpoints)
+│   │   └── VideoHostRepository.kt   # DataStore + OkHttp + cookie + playback speed
+│   └── model/Models.kt              # DTOs (VideoItem, Playlist, PlaylistGroup,
+│                                    #   PlaylistFull, PlaylistItem, Session,
+│                                    #   WatchProgress, VideoMark, MarksBulk*)
 └── ui/
     ├── NavGraph.kt                  # Routes: splash → settings/login/home/player
     └── screens/
         ├── login/LoginScreen.kt
         ├── settings/SettingsScreen.kt
-        ├── home/HomeScreen.kt       # Netflix-rows
+        ├── home/HomeScreen.kt       # Netflix-rows + groups + mark badges + mark-all-watched
         └── player/
-            ├── PlayerScreen.kt      # ExoPlayer + D-pad handler
+            ├── PlayerScreen.kt      # ExoPlayer + D-pad + marks toggle + speed control
             └── PlaybackTarget.kt    # Serialized playback target
 ```
 
@@ -117,19 +123,23 @@ app/src/main/java/com/videohost/tv/
 | `POST` | `/api/auth/login` | Login (returns Set-Cookie `vh_session`) |
 | `GET` | `/api/auth/me` | Verify session is still valid |
 | `GET` | `/api/playlists` | List all playlists with items |
+| `GET` | `/api/playlist-groups` | List playlist groups (color + icon) for grouping rows |
 | `GET` | `/api/videos` | List all videos |
 | `GET` | `/api/videos/:id/progress` | Get saved playback position |
 | `PUT` | `/api/videos/:id/progress` | Save current playback position |
 | `DELETE` | `/api/videos/:id/progress` | Clear progress when video ends |
 | `GET` | `/api/videos/:id/stream` | Video stream URL (passed to ExoPlayer) |
-| `GET` | `/api/videos/:id/thumbnail` | Thumbnail (302 redirect to YouTube URL if applicable) |
+| `GET` | `/api/videos/:id/thumbnail` | Thumbnail (local file or ffmpeg-generated; YouTube URLs cleared by backend) |
+| `GET` | `/api/videos/:id/marks` | Get current user's marks (watched, favorite) for a video |
+| `PUT` | `/api/videos/:id/marks` | Partial update of marks (watched and/or favorite) |
+| `DELETE` | `/api/videos/:id/marks` | Clear all marks for a video |
+| `GET` | `/api/me/marks` | Bulk list of all current user's marks (for badge display on home screen) |
+| `POST` | `/api/playlists/:id/mark-all-watched` | Mark every video in a playlist as watched |
 
 ## Known limitations
 
 - No upload / playlist creation (intentional — use the VideoHost web UI or the [yt2tg-bot](https://github.com/sakurka-cmd/yt2tg-bot) for that)
 - No search
-- No favorites
-- No playback speed control (planned for a future release)
 
 ## License
 
