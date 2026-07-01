@@ -17,6 +17,11 @@ import os
 import re
 import aiohttp
 from datetime import datetime
+from dotenv import load_dotenv
+
+# load_dotenv() must run before _get_github_token() is called, so that
+# GITHUB_TOKEN from .env is available in os.environ.
+load_dotenv()
 
 from bot import database as db
 from bot.config import ADMIN_IDS
