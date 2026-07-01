@@ -28,7 +28,9 @@ GITHUB_WEB = "https://github.com"
 
 # Optional GitHub token (needed for private repos like videohost).
 # Without it, private repos return 404 and are skipped.
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
+# Read lazily (at call time) so load_dotenv() in config.py has run first.
+def _get_github_token() -> str:
+    return os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
 
 REPOS = {
     "videohost": "sakurka-cmd/videohost",
@@ -53,8 +55,8 @@ async def _gh_get(session: aiohttp.ClientSession, url: str) -> dict | list | Non
             "Accept": "application/vnd.github+json",
             "User-Agent": "yt2tg-bot-version-checker",
         }
-        if GITHUB_TOKEN:
-            headers["Authorization"] = f"token {GITHUB_TOKEN}"
+        if _get_github_token():
+            headers["Authorization"] = f"token {_get_github_token()}"
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             if resp.status == 200:
                 return await resp.json()
