@@ -57,6 +57,9 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var currentPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var currentIndex by remember { mutableStateOf(target.allVideoIds.indexOf(target.videoId).coerceAtLeast(0)) }
     var currentVideoId by remember { mutableStateOf(target.videoId) }
+    var currentTitle by remember { mutableStateOf(
+        target.allVideoTitles.getOrNull(target.allVideoIds.indexOf(target.videoId).coerceAtLeast(0)) ?: ""
+    ) }
     var speedIdx by remember { mutableStateOf(1) }
     var speedOverlay by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -135,7 +138,7 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) { scope.launch {
                     try { repo.getApi().deleteProgress(videoId) } catch (_: Exception) {}
-                    if (autoplayNext.value) { val n = currentIndex + 1; if (n < target.allVideoIds.size) { currentIndex = n; currentVideoId = target.allVideoIds[n]; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[n]) } else onClose() } else player.playWhenReady = false
+                    if (autoplayNext.value) { val n = currentIndex + 1; if (n < target.allVideoIds.size) { currentIndex = n; currentVideoId = target.allVideoIds[n]; currentTitle = target.allVideoTitles.getOrNull(n) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[n]) } else onClose() } else player.playWhenReady = false
                 } }
             }
         })
@@ -144,7 +147,7 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         return player
     }
     LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
-    fun switchTo(idx: Int) { if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx]) }
+    fun switchTo(idx: Int) { if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx]) }
     fun fmt(ms: Long): String { if (ms <= 0) return "0:00"; val s = ms / 1000; return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
 
     Box(Modifier.fillMaxSize().background(Color.Black)
@@ -175,6 +178,15 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         }
         if (controlsVisible) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                if (currentTitle.isNotEmpty()) {
+                    Text(
+                        text = currentTitle,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    )
+                }
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text(text = "${fmt(positionMs)}", color = Color.White, fontSize = 12.sp)
                     Text(text = if (isPlaying) "\u23F8" else "\u25B6", color = Color.White, fontSize = 20.sp, modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { currentPlayer?.let { it.playWhenReady = !it.playWhenReady } })

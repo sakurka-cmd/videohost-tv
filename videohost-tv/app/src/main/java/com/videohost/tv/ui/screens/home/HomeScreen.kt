@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     repo: VideoHostRepository,
-    onPlayVideo: (playlistId: String?, videoId: String, allIds: List<String>) -> Unit,
+    onPlayVideo: (playlistId: String?, videoId: String, allIds: List<String>, allTitles: List<String>) -> Unit,
     onOpenSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -207,7 +207,7 @@ fun HomeScreen(
                                     baseUrl = baseUrl,
                                     marksMap = marksMap,
                                     onItemClick = { v ->
-                                        onPlayVideo(null, v.id, continueWatching.map { it.id })
+                                        onPlayVideo(null, v.id, continueWatching.map { it.id }, continueWatching.map { it.title })
                                     },
                                 )
                             }
@@ -220,7 +220,7 @@ fun HomeScreen(
                                     baseUrl = baseUrl,
                                     marksMap = marksMap,
                                     onItemClick = { v ->
-                                        onPlayVideo(null, v.id, allVideos.map { it.id })
+                                        onPlayVideo(null, v.id, allVideos.map { it.id }, allVideos.map { it.title })
                                     },
                                 )
                             }
@@ -241,7 +241,7 @@ fun HomeScreen(
                                         baseUrl = baseUrl,
                                         marksMap = marksMap,
                                         onItemClick = { v ->
-                                            onPlayVideo(pl.id, v.id, plVideos.map { it.id })
+                                            onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title })
                                         },
                                         onMarkAllWatched = {
                                             scope.launch {
@@ -277,7 +277,7 @@ fun HomeScreen(
                                             baseUrl = baseUrl,
                                             marksMap = marksMap,
                                             onItemClick = { v ->
-                                                onPlayVideo(pl.id, v.id, plVideos.map { it.id })
+                                                onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title })
                                             },
                                             onMarkAllWatched = {
                                                 scope.launch {
