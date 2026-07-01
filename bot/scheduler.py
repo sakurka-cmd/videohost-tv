@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from datetime import datetime, timezone
 
 import feedparser
@@ -23,7 +22,7 @@ FEED_RETRY_ATTEMPTS = 3
 FEED_RETRY_BACKOFF_SEC = 10
 
 
-def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
+async def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
     if channel_id.startswith("@") or channel_id.startswith("UC"):
         feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     else:
@@ -40,16 +39,19 @@ def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
                 feed = feedparser.parse(search_url)
                 if feed.entries:
                     return feed
-            # Empty on this attempt — retry unless this was the last one
+            # Empty on this attempt — retry unless this was the last one.
+            # Use asyncio.sleep (NOT time.sleep) to avoid blocking the event
+            # loop — other async tasks (version_checker, bot polling) must
+            # keep running during the backoff.
             if attempt < FEED_RETRY_ATTEMPTS:
                 logger.info("Empty RSS feed for %s (attempt %d/%d), retrying in %ds",
                             channel_id, attempt, FEED_RETRY_ATTEMPTS, FEED_RETRY_BACKOFF_SEC)
-                time.sleep(FEED_RETRY_BACKOFF_SEC)
+                await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
         except Exception as e:
             logger.error("RSS parse error for %s (attempt %d/%d): %s",
                          channel_id, attempt, FEED_RETRY_ATTEMPTS, e)
             if attempt < FEED_RETRY_ATTEMPTS:
-                time.sleep(FEED_RETRY_BACKOFF_SEC)
+                await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
     logger.warning("No feed entries for channel %s after %d attempts",
                    channel_id, FEED_RETRY_ATTEMPTS)
     return None
@@ -66,7 +68,7 @@ async def process_subscription(sub: dict) -> int:
     white_filter = sub.get("white_filter", "") or ""
     black_filter = sub.get("black_filter", "") or ""
 
-    feed = get_channel_feed(feed_id)
+    feed = await get_channel_feed(feed_id)
     if not feed:
         logger.warning("No feed entries for channel %s (feed_id=%s)", channel_id, feed_id)
         return 0
