@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+import aiohttp
 import feedparser
 
 from bot import database as db
@@ -18,8 +19,19 @@ logger = logging.getLogger(__name__)
 # or brief outage). Retry a few times with backoff before giving up —
 # otherwise we silently miss new videos until the next hourly check,
 # which can age them past the 7-day skip window and lose them forever.
+# NOTE: retry only applies to HTTP 200 with empty body (transient).
+# Permanent errors (404 = channel deleted, 500 = YouTube server error)
+# return immediately without retry — retrying those is wasteful and
+# risks YouTube IP-blocking the VPS for spamming dead channels.
 FEED_RETRY_ATTEMPTS = 3
 FEED_RETRY_BACKOFF_SEC = 10
+
+
+async def _fetch_feed_body(session: aiohttp.ClientSession, url: str) -> tuple[int, str | None]:
+    """Fetch URL body via aiohttp. Returns (status_code, body_text or None)."""
+    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        body = await resp.text() if resp.status == 200 else None
+        return resp.status, body
 
 
 async def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
@@ -28,30 +40,52 @@ async def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
     else:
         feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id=@{channel_id}"
 
-    for attempt in range(1, FEED_RETRY_ATTEMPTS + 1):
-        try:
-            feed = feedparser.parse(feed_url)
-            if feed.entries:
-                return feed
-            # Empty feed — try search_query fallback (only for non-UC handles)
-            if "@" not in channel_id and not channel_id.startswith("UC"):
-                search_url = f"https://www.youtube.com/feeds/videos.xml?search_query={channel_id}"
-                feed = feedparser.parse(search_url)
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(1, FEED_RETRY_ATTEMPTS + 1):
+            try:
+                status, body = await _fetch_feed_body(session, feed_url)
+
+                # Permanent errors — no retry (channel deleted/blocked)
+                if status == 404:
+                    logger.warning("RSS 404 for channel %s (deleted?) — no retry", channel_id)
+                    return None
+                if status == 500:
+                    logger.warning("RSS 500 for channel %s (YouTube server error) — no retry", channel_id)
+                    return None
+                if status != 200:
+                    logger.warning("RSS HTTP %d for channel %s — no retry", status, channel_id)
+                    return None
+
+                # 200 OK — parse the body
+                feed = feedparser.parse(body)
                 if feed.entries:
                     return feed
-            # Empty on this attempt — retry unless this was the last one.
-            # Use asyncio.sleep (NOT time.sleep) to avoid blocking the event
-            # loop — other async tasks (version_checker, bot polling) must
-            # keep running during the backoff.
-            if attempt < FEED_RETRY_ATTEMPTS:
-                logger.info("Empty RSS feed for %s (attempt %d/%d), retrying in %ds",
-                            channel_id, attempt, FEED_RETRY_ATTEMPTS, FEED_RETRY_BACKOFF_SEC)
-                await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
-        except Exception as e:
-            logger.error("RSS parse error for %s (attempt %d/%d): %s",
-                         channel_id, attempt, FEED_RETRY_ATTEMPTS, e)
-            if attempt < FEED_RETRY_ATTEMPTS:
-                await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
+
+                # 200 but empty — try search_query fallback (only for non-UC handles)
+                if "@" not in channel_id and not channel_id.startswith("UC"):
+                    search_url = f"https://www.youtube.com/feeds/videos.xml?search_query={channel_id}"
+                    try:
+                        s_status, s_body = await _fetch_feed_body(session, search_url)
+                        if s_status == 200 and s_body:
+                            feed = feedparser.parse(s_body)
+                            if feed.entries:
+                                return feed
+                    except Exception:
+                        pass
+
+                # 200-empty — retry (transient YouTube cache refresh).
+                # Use asyncio.sleep (NOT time.sleep) to avoid blocking the
+                # event loop — other async tasks keep running during backoff.
+                if attempt < FEED_RETRY_ATTEMPTS:
+                    logger.info("Empty RSS feed for %s (attempt %d/%d), retrying in %ds",
+                                channel_id, attempt, FEED_RETRY_ATTEMPTS, FEED_RETRY_BACKOFF_SEC)
+                    await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
+            except Exception as e:
+                logger.error("RSS fetch error for %s (attempt %d/%d): %s",
+                             channel_id, attempt, FEED_RETRY_ATTEMPTS, e)
+                if attempt < FEED_RETRY_ATTEMPTS:
+                    await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
+
     logger.warning("No feed entries for channel %s after %d attempts",
                    channel_id, FEED_RETRY_ATTEMPTS)
     return None
