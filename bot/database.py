@@ -55,6 +55,14 @@ CREATE TABLE IF NOT EXISTS fsm_states (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS version_state (
+    repo TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT DEFAULT '',
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (repo, key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_processed_ytid ON processed_videos(youtube_id);
 CREATE INDEX IF NOT EXISTS idx_subs_active ON subscriptions(active, channel_id);
 """

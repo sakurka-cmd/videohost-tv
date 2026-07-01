@@ -24,6 +24,7 @@ from bot.keyboards import (
 from bot.config import ADMIN_IDS, QUALITY_LABELS, DEFAULT_QUALITY
 from bot.filters import format_filter_for_display
 from bot.uploader import update_playlist_lifetime, get_playlist
+from bot.version_checker import get_versions_report
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +111,23 @@ def register_handlers(bot: AsyncTeleBot):
             "Качество: 480p, 720p (по умолчанию), 1080p, 4K\n\n"
             "Команды тоже работают:\n"
             "  /subscribe, /dl, /dl_playlist, /backfill, /list, /playlists,\n"
-            "  /filters, /status, /cancel, /unsub, /quality",
+            "  /filters, /status, /cancel, /unsub, /quality, /versions",
             reply_markup=main_menu_keyboard(),
         )
+
+    # ── /versions — show current versions of all components ──
+    @bot.message_handler(commands=["versions"])
+    async def cmd_versions(msg: Message):
+        if not is_admin(msg.from_user.id):
+            await bot.reply_to(msg, "У вас нет доступа.")
+            return
+        await bot.reply_to(msg, "⏳ Проверяю версии на GitHub...")
+        try:
+            report = await get_versions_report()
+            await bot.reply_to(msg, report, disable_web_page_preview=True)
+        except Exception as e:
+            logger.error("Failed to get versions: %s", e)
+            await bot.reply_to(msg, f"⚠️ Не удалось получить версии: {e}")
 
     # ── /playlists ──────────────────────────────────────────
     @bot.message_handler(commands=["playlists"])
