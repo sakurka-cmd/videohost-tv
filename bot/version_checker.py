@@ -1,17 +1,20 @@
 """Version checker — polls GitHub for new commits and APK releases.
 
 Checks 3 repositories every hour (alongside the RSS scheduler):
-  - sakurka-cmd/videohost      (backend)
-  - sakurka-cmd/yt2tg-bot      (this bot)
-  - sakurka-cmd/videohost-tv   (APK source + download/*.apk)
+  - sakurka-cmd/videohost      (backend, private — needs GITHUB_TOKEN)
+  - sakurka-cmd/yt2tg-bot      (this bot, public)
+  - sakurka-cmd/videohost-tv   (APK source + download/*.apk, public)
 
 When a new commit or APK is detected, notifies all ADMIN_IDS via Telegram
-with a summary and direct GitHub links. Uses the public GitHub API
-(60 req/hour unauthenticated — more than enough for 3 req/hour).
+with a summary and direct GitHub links. Uses the GitHub API — needs
+GITHUB_TOKEN env var for the private videohost repo (5000 req/hour with
+token vs 60 req/hour without).
 """
 
 import asyncio
 import logging
+import os
+import re
 import aiohttp
 from datetime import datetime
 
@@ -22,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
 GITHUB_WEB = "https://github.com"
+
+# Optional GitHub token (needed for private repos like videohost).
+# Without it, private repos return 404 and are skipped.
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
 
 REPOS = {
     "videohost": "sakurka-cmd/videohost",
@@ -46,6 +53,8 @@ async def _gh_get(session: aiohttp.ClientSession, url: str) -> dict | list | Non
             "Accept": "application/vnd.github+json",
             "User-Agent": "yt2tg-bot-version-checker",
         }
+        if GITHUB_TOKEN:
+            headers["Authorization"] = f"token {GITHUB_TOKEN}"
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             if resp.status == 200:
                 return await resp.json()
@@ -53,6 +62,9 @@ async def _gh_get(session: aiohttp.ClientSession, url: str) -> dict | list | Non
                 # Rate limit — log and skip this cycle
                 remaining = resp.headers.get("X-RateLimit-Remaining", "?")
                 logger.warning("GitHub API rate limit (remaining=%s), skipping version check", remaining)
+                return None
+            elif resp.status == 404:
+                logger.warning("GitHub API 404 for %s (private repo without token?)", url)
                 return None
             else:
                 logger.warning("GitHub API %s returned %d", url, resp.status)
@@ -102,8 +114,22 @@ async def _fetch_latest_commit(session: aiohttp.ClientSession, repo: str) -> dic
     }
 
 
+def _apk_version_key(name: str) -> tuple:
+    """Extract version tuple from APK filename for natural sorting.
+    e.g. 'UTubeTV-debug-v1.8.apk' -> (1, 8), 'VideoHostTV-debug-v1.0.apk' -> (1, 0)
+    Falls back to (0,) if no version found.
+    """
+    m = re.search(r"v(\d+)(?:\.(\d+))?", name)
+    if m:
+        major = int(m.group(1))
+        minor = int(m.group(2)) if m.group(2) else 0
+        return (major, minor)
+    return (0,)
+
+
 async def _fetch_apk_list(session: aiohttp.ClientSession) -> list[dict] | None:
-    """Fetch list of APK files from videohost-tv/download/ directory."""
+    """Fetch list of APK files from videohost-tv/download/ directory.
+    Sorted by version descending (newest first)."""
     data = await _gh_get(session, f"{GITHUB_API}/repos/{REPOS['videohost-tv']}/contents/download")
     if not data or not isinstance(data, list):
         return None
@@ -117,8 +143,8 @@ async def _fetch_apk_list(session: aiohttp.ClientSession) -> list[dict] | None:
                 "url": item.get("html_url", f"{GITHUB_WEB}/{REPOS['videohost-tv']}/blob/main/download/{name}"),
                 "download_url": item.get("download_url", f"https://raw.githubusercontent.com/{REPOS['videohost-tv']}/main/download/{name}"),
             })
-    # Sort by name descending (newest version first — assumes version in filename)
-    apks.sort(key=lambda a: a["name"], reverse=True)
+    # Natural sort by version (newest first): v1.8 > v1.7 > v1.5 > v1.0
+    apks.sort(key=lambda a: _apk_version_key(a["name"]), reverse=True)
     return apks
 
 
