@@ -15,14 +15,11 @@ from bot.filters import should_download
 
 logger = logging.getLogger(__name__)
 
-# YouTube RSS occasionally returns an empty feed (transient cache refresh
-# or brief outage). Retry a few times with backoff before giving up —
-# otherwise we silently miss new videos until the next hourly check,
-# which can age them past the 7-day skip window and lose them forever.
-# NOTE: retry only applies to HTTP 200 with empty body (transient).
-# Permanent errors (404 = channel deleted, 500 = YouTube server error)
-# return immediately without retry — retrying those is wasteful and
-# risks YouTube IP-blocking the VPS for spamming dead channels.
+# YouTube RSS is extremely flaky — the same channel can return 200, 404,
+# or 500 in rapid succession (confirmed by diagnosis: Agit_Prop was 404
+# then 200, AsafevLife was 200 then 404, all within minutes). So we
+# retry on ALL errors (404, 500, empty 200) — none are truly permanent.
+# Without retry we'd miss new videos whenever YouTube has a hiccup.
 FEED_RETRY_ATTEMPTS = 3
 FEED_RETRY_BACKOFF_SEC = 10
 
@@ -45,16 +42,19 @@ async def get_channel_feed(channel_id: str) -> feedparser.FeedParserDict | None:
             try:
                 status, body = await _fetch_feed_body(session, feed_url)
 
-                # Permanent errors — no retry (channel deleted/blocked)
-                if status == 404:
-                    logger.warning("RSS 404 for channel %s (deleted?) — no retry", channel_id)
-                    return None
-                if status == 500:
-                    logger.warning("RSS 500 for channel %s (YouTube server error) — no retry", channel_id)
-                    return None
+                # Non-200 statuses — YouTube RSS is flaky, 404/500 can be
+                # transient (same channel returns 200 a minute later).
+                # Retry with backoff, but log the status for diagnostics.
                 if status != 200:
-                    logger.warning("RSS HTTP %d for channel %s — no retry", status, channel_id)
-                    return None
+                    if attempt < FEED_RETRY_ATTEMPTS:
+                        logger.info("RSS HTTP %d for %s (attempt %d/%d), retrying in %ds",
+                                    status, channel_id, attempt, FEED_RETRY_ATTEMPTS, FEED_RETRY_BACKOFF_SEC)
+                        await asyncio.sleep(FEED_RETRY_BACKOFF_SEC)
+                        continue
+                    else:
+                        logger.warning("RSS HTTP %d for channel %s after %d attempts — giving up",
+                                       status, channel_id, FEED_RETRY_ATTEMPTS)
+                        return None
 
                 # 200 OK — parse the body
                 feed = feedparser.parse(body)
