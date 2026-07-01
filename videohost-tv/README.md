@@ -15,6 +15,7 @@ Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/vid
   - `↑` / `↓` — previous / next video in the current list
   - `Back` — save progress and close the player
   - On video end: clears saved progress (so the next viewing starts from the beginning) and auto-advances to the next video
+  - Video title displayed in the controls overlay (updates on next/prev/auto-advance)
 - **Resume position sync** — automatically resumes from the saved position when a video is opened. Position is saved to the server every 5 seconds, so it stays in sync across web, mobile, and TV.
 - **Video marks** — toggle "watched" (`✓ Просм.`) and "favorite" (`★ Избр.`) from the player control bar. Marks are synced to the server (`/api/videos/{id}/marks`) and displayed as badges on thumbnails in the home screen (bulk-loaded via `/api/me/marks`).
 - **Mark all watched** — a `✓ Все просмотрено` button on every playlist row marks all videos in that playlist as watched (`POST /api/playlists/{id}/mark-all-watched`).
