@@ -42,9 +42,12 @@ import androidx.media3.ui.PlayerView
 import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.font.FontWeight
 
 val PLAYBACK_SPEEDS = floatArrayOf(0.5f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
 
@@ -70,6 +73,11 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var watched by remember { mutableStateOf(false) }
     var favorite by remember { mutableStateOf(false) }
     val autoplayNext = remember { mutableStateOf(true) }
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekPositionMs by remember { mutableStateOf(0L) }
+    var seekDirection by remember { mutableStateOf(0) }
+    var wasPlayingBeforeSeek by remember { mutableStateOf(false) }
+    val seekJobHolder = remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(currentVideoId) {
         try {
@@ -116,7 +124,7 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         if (idx >= 0) speedIdx = idx
     }
     LaunchedEffect(lastInteraction) {
-        while (true) { delay(1000); if (System.currentTimeMillis() - lastInteraction > 5000 && isPlaying) { controlsVisible = false; speedOverlay = false } }
+        while (true) { delay(1000); if (System.currentTimeMillis() - lastInteraction > 5000 && isPlaying && !isSeeking) { controlsVisible = false; speedOverlay = false } }
     }
     LaunchedEffect(currentPlayer) { while (true) { delay(500); currentPlayer?.let { positionMs = it.currentPosition; durationMs = it.duration.takeIf { d -> d > 0 } ?: 0L; isPlaying = it.isPlaying } } }
     LaunchedEffect(speedIdx, currentPlayer) { currentPlayer?.let { it.playbackParameters = it.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx]) } }
@@ -158,25 +166,87 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         return player
     }
     LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
-    fun switchTo(idx: Int) { if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx]) }
+    fun switchTo(idx: Int) { if (idx < 0 || idx >= target.allVideoIds.size) return; seekJobHolder.value?.cancel(); seekJobHolder.value = null; isSeeking = false; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx]) }
     fun fmt(ms: Long): String { if (ms <= 0) return "0:00"; val s = ms / 1000; return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
 
     Box(Modifier.fillMaxSize().background(Color.Black)
         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { controlsVisible = !controlsVisible; lastInteraction = System.currentTimeMillis() }
         .onPreviewKeyEvent { e ->
-            if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
-            lastInteraction = System.currentTimeMillis(); controlsVisible = true
             when (e.key) {
-                Key.DirectionLeft -> { currentPlayer?.seekTo((currentPlayer!!.currentPosition - 10000).coerceAtLeast(0)); true }
-                Key.DirectionRight -> { currentPlayer?.seekTo((currentPlayer!!.currentPosition + 10000).coerceAtMost(currentPlayer!!.duration.coerceAtLeast(0))); true }
-                Key.DirectionCenter, Key.Enter -> { currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
-                Key.DirectionUp -> { switchTo(currentIndex - 1); true }
-                Key.DirectionDown -> { switchTo(currentIndex + 1); true }
-                Key.Menu -> { speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
-                Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
-                Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
-                Key.Back -> { scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
-                else -> false
+                Key.DirectionLeft, Key.DirectionRight -> {
+                    val dir = if (e.key == Key.DirectionLeft) -1L else 1L
+                    when (e.type) {
+                        KeyEventType.KeyDown -> {
+                            lastInteraction = System.currentTimeMillis(); controlsVisible = true
+                            val dur = currentPlayer?.duration?.takeIf { it > 0 } ?: 0L
+                            if (dur > 0) {
+                                if (!isSeeking) {
+                                    seekPositionMs = currentPlayer?.currentPosition ?: 0L
+                                    isSeeking = true; seekDirection = dir.toInt()
+                                    wasPlayingBeforeSeek = currentPlayer?.isPlaying ?: false
+                                    currentPlayer?.playWhenReady = false
+                                    seekPositionMs = (seekPositionMs + dir * 10000L).coerceIn(0L, dur)
+                                    seekJobHolder.value = scope.launch {
+                                        delay(400)
+                                        var step = 10000L; var count = 0
+                                        while (isActive) {
+                                            count++
+                                            step = when { count < 5 -> 10000L; count < 10 -> 15000L; count < 20 -> 30000L; else -> 60000L }
+                                            val d = currentPlayer?.duration?.coerceAtLeast(0L) ?: 0L
+                                            seekPositionMs = (seekPositionMs + dir * step).coerceIn(0L, d)
+                                            delay(100)
+                                        }
+                                    }
+                                } else if (dir.toInt() != seekDirection) {
+                                    seekJobHolder.value?.cancel(); seekDirection = dir.toInt()
+                                    seekJobHolder.value = scope.launch {
+                                        delay(400)
+                                        var step = 10000L; var count = 0
+                                        while (isActive) {
+                                            count++
+                                            step = when { count < 5 -> 10000L; count < 10 -> 15000L; count < 20 -> 30000L; else -> 60000L }
+                                            val d = currentPlayer?.duration?.coerceAtLeast(0L) ?: 0L
+                                            seekPositionMs = (seekPositionMs + dir * step).coerceIn(0L, d)
+                                            delay(100)
+                                        }
+                                    }
+                                }
+                            }
+                            true
+                        }
+                        KeyEventType.KeyRepeat -> { true }
+                        KeyEventType.KeyUp -> {
+                            seekJobHolder.value?.cancel(); seekJobHolder.value = null
+                            if (isSeeking) {
+                                currentPlayer?.seekTo(seekPositionMs)
+                                if (wasPlayingBeforeSeek) currentPlayer?.playWhenReady = true
+                                isSeeking = false
+                            }
+                            true
+                        }
+                        else -> true
+                    }
+                }
+                else -> {
+                    if (e.type == KeyEventType.KeyDown && isSeeking) {
+                        seekJobHolder.value?.cancel(); seekJobHolder.value = null
+                        currentPlayer?.seekTo(seekPositionMs)
+                        if (wasPlayingBeforeSeek) currentPlayer?.playWhenReady = true
+                        isSeeking = false
+                    }
+                    if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
+                    lastInteraction = System.currentTimeMillis(); controlsVisible = true
+                    when (e.key) {
+                        Key.DirectionCenter, Key.Enter -> { currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
+                        Key.DirectionUp -> { switchTo(currentIndex - 1); true }
+                        Key.DirectionDown -> { switchTo(currentIndex + 1); true }
+                        Key.Menu -> { speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
+                        Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
+                        Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
+                        Key.Back -> { scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
+                        else -> false
+                    }
+                }
             }
         }
     ) {
@@ -227,6 +297,27 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                 Text(text = "Speed: ${PLAYBACK_SPEEDS[speedIdx]}x", color = Color.White, fontSize = 18.sp)
             }
         }
+        if (isSeeking) {
+            val dur = currentPlayer?.duration?.takeIf { it > 0 } ?: 1L
+            val progress = (seekPositionMs.toFloat() / dur).coerceIn(0f, 1f)
+            val currentPos = currentPlayer?.currentPosition ?: 0L
+            val diff = seekPositionMs - currentPos
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.BottomCenter) {
+                Column(Modifier.fillMaxWidth().padding(bottom = 100.dp, start = 64.dp, end = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Text(text = fmt(seekPositionMs), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                        Text(text = fmt(dur), color = Color.White.copy(alpha = 0.6f), fontSize = 32.sp)
+                    }
+                    Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White.copy(alpha = 0.3f), RoundedCornerShape(4.dp))) {
+                        Box(Modifier.fillMaxWidth(progress).height(8.dp).background(Color(0xFFEF4444), RoundedCornerShape(4.dp)))
+                    }
+                    Text(
+                        text = if (diff > 0) "+${fmt(diff)} →" else if (diff < 0) "← -${fmt(-diff)}" else "",
+                        color = Color(0xFFEF4444), fontSize = 20.sp, modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
     }
-    DisposableEffect(Unit) { onDispose { currentPlayer?.release(); currentPlayer = null } }
+    DisposableEffect(Unit) { onDispose { seekJobHolder.value?.cancel(); currentPlayer?.release(); currentPlayer = null } }
 }
