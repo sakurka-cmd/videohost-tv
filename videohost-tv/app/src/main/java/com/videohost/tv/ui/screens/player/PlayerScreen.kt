@@ -137,6 +137,17 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) { android.util.Log.e("UTube", "Player error: $videoId", e) }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) { scope.launch {
+                    // Send a final progress update at 100% BEFORE deleting.
+                    // The periodic save (every 5s) might have last saved at
+                    // 93-94% — below the auto-watched threshold (95%).
+                    // This final PUT ensures the server marks the video as
+                    // watched before we clear the progress record.
+                    try {
+                        val dur = player.duration.takeIf { it > 0 }?.let { it / 1000f }
+                        if (dur != null && dur > 0) {
+                            repo.getApi().putProgress(videoId, WatchProgressUpdate(dur, dur))
+                        }
+                    } catch (_: Exception) {}
                     try { repo.getApi().deleteProgress(videoId) } catch (_: Exception) {}
                     if (autoplayNext.value) { val n = currentIndex + 1; if (n < target.allVideoIds.size) { currentIndex = n; currentVideoId = target.allVideoIds[n]; currentTitle = target.allVideoTitles.getOrNull(n) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[n]) } else onClose() } else player.playWhenReady = false
                 } }
