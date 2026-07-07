@@ -1,0 +1,15 @@
+[Unit]
+Description=yt2tg — YouTube to VideoHost Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/yt2tg-bot
+ExecStart=/root/yt2tg-bot/venv/bin/python -m bot.main
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=/root/yt2tg-bot/.env
+
+[Install]
+WantedBy=multi-user.target
