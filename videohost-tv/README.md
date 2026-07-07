@@ -11,7 +11,8 @@ Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/vid
   - Playlists are grouped by `PlaylistGroup` (color + icon); ungrouped playlists appear at the bottom
 - **D-pad-controlled video player (Media3 ExoPlayer):**
   - `OK` / `Enter` — play / pause
-  - `←` / `→` — seek ±10 seconds
+  - `←` / `→` (single tap) — seek ±10 seconds
+  - `←` / `→` (long-press / hold) — **continuous seek with acceleration** (YouTube-style): after 400ms hold, starts seeking every 200ms; delta accelerates 10s → 20s → 30s every 5 ticks. Visual indicator overlay (`◀◀ 10s` / `▶▶ 30s`) with pulse animation.
   - `↑` / `↓` — previous / next video in the current list
   - `Back` — save progress and close the player
   - On video end: clears saved progress (so the next viewing starts from the beginning) and auto-advances to the next video
@@ -23,6 +24,15 @@ Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/vid
 - **Login screen** — username/password from VideoHost (cookie `vh_session` persisted in DataStore).
 - **Settings screen** — the VideoHost URL is configured on first launch and can be changed later via the Settings button on the home screen.
 - **Thumbnails** — loaded from `/api/videos/{id}/thumbnail` (the backend serves a local file or generates one on-the-fly via ffmpeg; YouTube URLs are cleared by the backend since YouTube is blocked on the TV).
+- **CLI provisioning via adb** — configure server URL and login credentials in one command without touching the UI:
+  ```bash
+  adb shell am start -n com.videohost.tv/.MainActivity \
+    -e server_url "http://192.168.0.3:3002" \
+    -e username "x4" \
+    -e password "x4"
+  ```
+  The app persists the URL to DataStore, auto-logs in, and navigates straight to the home screen. Useful for automated deployment to multiple TV boxes.
+- **Unified APK signing** — a stable release keystore (`app/videohost-release.keystore`) is committed to the repo and used for both debug and release builds. This prevents `INSTALL_FAILED_UPDATE_INCOMPATIBLE` when updating APK across different build machines (each machine has its own auto-generated debug keystore).
 
 ## Installation
 
@@ -141,6 +151,26 @@ app/src/main/java/com/videohost/tv/
 
 - No upload / playlist creation (intentional — use the VideoHost web UI or the [yt2tg-bot](https://github.com/sakurka-cmd/yt2tg-bot) for that)
 - No search
+
+## Changelog
+
+### v2.0.2 (2026-07-07)
+- **feat(player): continuous seek (YouTube-style)** — long-press D-pad LEFT/RIGHT starts accelerated seek after 400ms hold. Delta ramps 10s → 20s → 30s every 5 ticks (tick = 200ms). Visual indicator overlay (`◀◀ 10s` / `▶▶ 30s`) with pulse animation. Single tap ±10s preserved.
+- **feat(provisioning): CLI via adb intent extras** — `adb shell am start -e server_url ... -e username ... -e password ...` configures the app without UI interaction. Useful for automated deployment.
+- **fix(signing): unified keystore** — stable release keystore (`app/videohost-release.keystore`) used for both debug and release builds. Eliminates `INSTALL_FAILED_UPDATE_INCOMPATIBLE` when updating APK built on different machines.
+- **fix(player): auto-mark 100% watched on STATE_ENDED** — ensures watched flag is set even if the user doesn't press ChannelUp.
+
+### v1.8 (2026-07-02)
+- Video title displayed in the controls overlay (updates on next/prev/auto-advance)
+
+### v1.7 (2026-06-30)
+- Playlist groups + marks + thumbnail fix
+
+### v1.5 (2026-06-26)
+- Custom icon + UTube rename + D-pad + speed + autoplay + no-uninstall update
+
+### v1.0 (2026-06-20)
+- Initial release
 
 ## License
 

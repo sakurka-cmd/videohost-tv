@@ -1,5 +1,10 @@
 package com.videohost.tv.ui.screens.player
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -11,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -25,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -42,6 +47,7 @@ import androidx.media3.ui.PlayerView
 import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -70,6 +76,17 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var watched by remember { mutableStateOf(false) }
     var favorite by remember { mutableStateOf(false) }
     val autoplayNext = remember { mutableStateOf(true) }
+
+    // ── Continuous seek state (YouTube-style long-press) ────────────────
+    var seekDirection by remember { mutableStateOf(0) }           // 0 = none, -1 = back, +1 = forward
+    var seekDeltaSec by remember { mutableStateOf(10) }            // per-tick delta (accelerates 10→20→30)
+    var seekIndicatorVisible by remember { mutableStateOf(false) }
+    var seekIndicatorDirection by remember { mutableStateOf(0) }   // preserves arrow during hide animation
+    var continuousSeekStarted by remember { mutableStateOf(false) }
+    var pressedSeekDirection by remember { mutableStateOf(0) }     // which direction is currently held
+    var seekHoldJob by remember { mutableStateOf<Job?>(null) }     // delayed start (400ms threshold)
+    var hideIndicatorJob by remember { mutableStateOf<Job?>(null) }
+    // ────────────────────────────────────────────────────────────────────
 
     LaunchedEffect(currentVideoId) {
         try {
@@ -121,6 +138,72 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     LaunchedEffect(currentPlayer) { while (true) { delay(500); currentPlayer?.let { positionMs = it.currentPosition; durationMs = it.duration.takeIf { d -> d > 0 } ?: 0L; isPlaying = it.isPlaying } } }
     LaunchedEffect(speedIdx, currentPlayer) { currentPlayer?.let { it.playbackParameters = it.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx]) } }
 
+    // ── Continuous seek helpers ─────────────────────────────────────────
+    fun cancelSeekHold() {
+        seekHoldJob?.cancel(); seekHoldJob = null
+        hideIndicatorJob?.cancel(); hideIndicatorJob = null
+        seekDirection = 0
+        seekDeltaSec = 10
+        continuousSeekStarted = false
+        pressedSeekDirection = 0
+        seekIndicatorVisible = false
+    }
+
+    fun startSeekHold(direction: Int) {
+        // Ignore if same direction already pressed (Android sends repeats)
+        if (pressedSeekDirection == direction) return
+        // Switching direction: cancel previous
+        if (pressedSeekDirection != 0) {
+            seekHoldJob?.cancel()
+            seekDirection = 0
+            continuousSeekStarted = false
+        }
+        pressedSeekDirection = direction
+        continuousSeekStarted = false
+        seekDeltaSec = 10
+        seekHoldJob?.cancel()
+        seekHoldJob = scope.launch {
+            delay(400)  // threshold: long-press detection
+            // Held past 400ms → start continuous seek loop
+            continuousSeekStarted = true
+            seekIndicatorDirection = direction
+            seekIndicatorVisible = true
+            seekDirection = direction
+        }
+    }
+
+    fun endSeekHold(direction: Int) {
+        if (pressedSeekDirection != direction) return
+        val wasContinuous = continuousSeekStarted
+        pressedSeekDirection = 0
+        seekHoldJob?.cancel(); seekHoldJob = null
+        seekDirection = 0
+        if (!wasContinuous) {
+            // Short tap (< 400ms): single ±10s seek (preserve original behavior)
+            currentPlayer?.let { p ->
+                val newPos = if (direction < 0) {
+                    (p.currentPosition - 10_000).coerceAtLeast(0)
+                } else {
+                    (p.currentPosition + 10_000).coerceAtMost(p.duration.coerceAtLeast(0))
+                }
+                p.seekTo(newPos)
+                positionMs = newPos
+            }
+            // Brief indicator flash for single tap
+            seekIndicatorDirection = direction
+            seekIndicatorVisible = true
+        }
+        // Hide indicator after 500ms (preserve arrow direction during hide)
+        hideIndicatorJob?.cancel()
+        hideIndicatorJob = scope.launch {
+            delay(500)
+            seekIndicatorVisible = false
+            continuousSeekStarted = false
+            seekDeltaSec = 10
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────
+
     fun buildPlayer(videoId: String): ExoPlayer {
         val baseUrl = kotlinx.coroutines.runBlocking { repo.getServerUrl() }
         val sessionCookie = kotlinx.coroutines.runBlocking { repo.getSessionCookie() }
@@ -137,6 +220,11 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) { android.util.Log.e("UTube", "Player error: $videoId", e) }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) { scope.launch {
+                    // Auto-mark as 100% watched when video ends
+                    try { repo.getApi().putProgress(videoId, WatchProgressUpdate(
+                        (currentPlayer?.duration?.takeIf { it > 0 } ?: 0L) / 1000f,
+                        currentPlayer?.duration?.takeIf { it > 0 }?.let { it / 1000f })
+                    ) } catch (_: Exception) {}
                     try { repo.getApi().deleteProgress(videoId) } catch (_: Exception) {}
                     if (autoplayNext.value) { val n = currentIndex + 1; if (n < target.allVideoIds.size) { currentIndex = n; currentVideoId = target.allVideoIds[n]; currentTitle = target.allVideoTitles.getOrNull(n) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[n]) } else onClose() } else player.playWhenReady = false
                 } }
@@ -147,24 +235,64 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         return player
     }
     LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
-    fun switchTo(idx: Int) { if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx]) }
+    fun switchTo(idx: Int) {
+        cancelSeekHold()  // reset seek state on video switch
+        if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx])
+    }
     fun fmt(ms: Long): String { if (ms <= 0) return "0:00"; val s = ms / 1000; return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
+
+    // ── Continuous seek loop ────────────────────────────────────────────
+    // Ticks every 200ms while seekDirection != 0, seeking by seekDeltaSec * direction.
+    // Accelerates: every 5 ticks, +10s delta (cap at 30s).
+    LaunchedEffect(seekDirection, currentPlayer) {
+        if (seekDirection == 0) return@LaunchedEffect
+        val player = currentPlayer ?: return@LaunchedEffect
+        var tickCount = 0
+        while (seekDirection != 0) {
+            val delta = seekDeltaSec * 1000L * seekDirection
+            val newPos = (player.currentPosition + delta).coerceIn(0, player.duration.coerceAtLeast(0))
+            player.seekTo(newPos)
+            positionMs = newPos
+            lastInteraction = System.currentTimeMillis()  // keep controls visible
+            tickCount++
+            // Accelerate every 5 ticks (capped at 30s)
+            if (tickCount % 5 == 0 && seekDeltaSec < 30) {
+                seekDeltaSec = (seekDeltaSec + 10).coerceAtMost(30)
+            }
+            // Stop at start/end
+            if (newPos <= 0 && seekDirection < 0) break
+            if (newPos >= player.duration && seekDirection > 0 && player.duration > 0) break
+            delay(200)
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     Box(Modifier.fillMaxSize().background(Color.Black)
         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { controlsVisible = !controlsVisible; lastInteraction = System.currentTimeMillis() }
         .onPreviewKeyEvent { e ->
+            // D-pad LEFT/RIGHT: handle on BOTH KeyDown (start hold) and KeyUp (end hold)
+            if (e.type == KeyEventType.KeyDown && (e.key == Key.DirectionLeft || e.key == Key.DirectionRight)) {
+                lastInteraction = System.currentTimeMillis(); controlsVisible = true
+                val dir = if (e.key == Key.DirectionLeft) -1 else 1
+                startSeekHold(dir)
+                return@onPreviewKeyEvent true
+            }
+            if (e.type == KeyEventType.KeyUp && (e.key == Key.DirectionLeft || e.key == Key.DirectionRight)) {
+                val dir = if (e.key == Key.DirectionLeft) -1 else 1
+                endSeekHold(dir)
+                return@onPreviewKeyEvent true
+            }
+            // All other keys: KeyUp only (original behavior)
             if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
             lastInteraction = System.currentTimeMillis(); controlsVisible = true
             when (e.key) {
-                Key.DirectionLeft -> { currentPlayer?.seekTo((currentPlayer!!.currentPosition - 10000).coerceAtLeast(0)); true }
-                Key.DirectionRight -> { currentPlayer?.seekTo((currentPlayer!!.currentPosition + 10000).coerceAtMost(currentPlayer!!.duration.coerceAtLeast(0))); true }
-                Key.DirectionCenter, Key.Enter -> { currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
-                Key.DirectionUp -> { switchTo(currentIndex - 1); true }
-                Key.DirectionDown -> { switchTo(currentIndex + 1); true }
-                Key.Menu -> { speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
+                Key.DirectionCenter, Key.Enter -> { cancelSeekHold(); currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
+                Key.DirectionUp -> { cancelSeekHold(); switchTo(currentIndex - 1); true }
+                Key.DirectionDown -> { cancelSeekHold(); switchTo(currentIndex + 1); true }
+                Key.Menu -> { cancelSeekHold(); speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
                 Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
                 Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
-                Key.Back -> { scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
+                Key.Back -> { cancelSeekHold(); scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
                 else -> false
             }
         }
@@ -216,6 +344,32 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                 Text(text = "Speed: ${PLAYBACK_SPEEDS[speedIdx]}x", color = Color.White, fontSize = 18.sp)
             }
         }
+        // ── Continuous seek indicator overlay ──────────────────────────
+        if (seekIndicatorVisible) {
+            // Pulse animation while actively seeking; solid during hide delay
+            val infiniteTransition = rememberInfiniteTransition(label = "seekPulse")
+            val pulseAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.65f,
+                targetValue = 1.0f,
+                animationSpec = infiniteRepeatable(tween(350), RepeatMode.Reverse),
+                label = "seekPulseAlpha"
+            )
+            val indicatorAlpha = if (continuousSeekStarted) pulseAlpha else 1.0f
+            val arrow = if (seekIndicatorDirection < 0) "◀◀" else "▶▶"
+            Box(
+                Modifier.align(Alignment.Center)
+                    .background(Color(0xCC000000), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 32.dp, vertical = 16.dp)
+                    .alpha(indicatorAlpha)
+            ) {
+                Text(
+                    text = "$arrow ${seekDeltaSec}s",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                )
+            }
+        }
+        // ────────────────────────────────────────────────────────────────
     }
     DisposableEffect(Unit) { onDispose { currentPlayer?.release(); currentPlayer = null } }
 }

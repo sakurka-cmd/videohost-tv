@@ -12,17 +12,32 @@ android {
         applicationId = "com.videohost.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.7"
+        versionCode = 10
+        versionName = "2.0.2"
+    }
+
+    // Unified signing config — same keystore for BOTH debug and release builds.
+    // This prevents INSTALL_FAILED_UPDATE_INCOMPATIBLE when updating APK across
+    // different build machines (each machine has its own auto-generated debug keystore).
+    // The keystore is committed to the repo at app/videohost-release.keystore.
+    signingConfigs {
+        create("unified") {
+            storeFile = file("videohost-release.keystore")
+            storePassword = "***REMOVED-KEYSTORE-PASS***"
+            keyAlias = "videohost"
+            keyPassword = "***REMOVED-KEYSTORE-PASS***"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("unified")
         }
         debug {
             // No applicationIdSuffix — updates install in place
+            signingConfig = signingConfigs.getByName("unified")
         }
     }
 

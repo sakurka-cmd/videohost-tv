@@ -1,5 +1,6 @@
 package com.videohost.tv
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +18,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repo = VideoHostRepository(applicationContext)
+        // Read intent extras for CLI provisioning:
+        //   adb shell am start -n com.videohost.tv/.MainActivity \
+        //     -e server_url "http://..." -e username "x4" -e password "x4"
+        val intent: Intent? = intent
+        val serverUrl = intent?.getStringExtra("server_url")
+        val username = intent?.getStringExtra("username")
+        val password = intent?.getStringExtra("password")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFFEF4444),
@@ -26,7 +34,12 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier.fillMaxSize().background(Color(0xFF0F0F10)),
                 ) {
-                    NavGraph(repo)
+                    NavGraph(
+                        repo = repo,
+                        serverUrl = serverUrl,
+                        username = username,
+                        password = password,
+                    )
                 }
             }
         }
