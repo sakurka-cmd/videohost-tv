@@ -73,8 +73,10 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
-    var watched by remember { mutableStateOf(false) }
-    var favorite by remember { mutableStateOf(false) }
+    var watched by remember { mutableStateOf(false) }   // watchedByAny (any user)
+    var favorite by remember { mutableStateOf(false) }  // favoriteByAny (any user)
+    var myWatched by remember { mutableStateOf(false) }
+    var myFavorite by remember { mutableStateOf(false) }
     val autoplayNext = remember { mutableStateOf(true) }
 
     // ── Continuous seek state (YouTube-style long-press) ────────────────
@@ -93,6 +95,8 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             val mark = repo.getApi().getMarks(currentVideoId)
             watched = mark.watched
             favorite = mark.favorite
+            myWatched = mark.myWatched
+            myFavorite = mark.myFavorite
         } catch (_: Exception) {
             watched = false
             favorite = false
@@ -101,12 +105,12 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
 
     fun toggleMark(field: MarkField) {
         val newValue = when (field) {
-            MarkField.WATCHED -> !watched
-            MarkField.FAVORITE -> !favorite
+            MarkField.WATCHED -> !myWatched
+            MarkField.FAVORITE -> !myFavorite
         }
         when (field) {
-            MarkField.WATCHED -> watched = newValue
-            MarkField.FAVORITE -> favorite = newValue
+            MarkField.WATCHED -> { myWatched = newValue; watched = watched || newValue }
+            MarkField.FAVORITE -> { myFavorite = newValue; favorite = favorite || newValue }
         }
         scope.launch {
             try {
@@ -117,10 +121,12 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                 ))
                 watched = updated.watched
                 favorite = updated.favorite
+                myWatched = updated.myWatched
+                myFavorite = updated.myFavorite
             } catch (_: Exception) {
                 when (field) {
-                    MarkField.WATCHED -> watched = !newValue
-                    MarkField.FAVORITE -> favorite = !newValue
+                    MarkField.WATCHED -> { myWatched = !newValue; watched = watched && !newValue }
+                    MarkField.FAVORITE -> { myFavorite = !newValue; favorite = favorite && !newValue }
                 }
             }
         }

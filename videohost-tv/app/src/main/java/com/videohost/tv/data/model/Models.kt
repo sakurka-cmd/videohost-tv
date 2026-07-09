@@ -83,8 +83,10 @@ data class WatchProgress(
 
 @Serializable
 data class VideoMark(
-    val watched: Boolean = false,
-    val favorite: Boolean = false,
+    val watched: Boolean = false,        // watchedByAny (any user)
+    val favorite: Boolean = false,       // favoriteByAny (any user)
+    val myWatched: Boolean = false,      // current user's own watched flag
+    val myFavorite: Boolean = false,     // current user's own favorite flag
     val updatedAt: String? = null,
 )
 
@@ -99,4 +101,22 @@ data class MarksBulkEntry(
     val watched: Boolean = false,
     val favorite: Boolean = false,
     val updatedAt: String? = null,
+)
+
+@Serializable
+data class AllMarksResponse(
+    val marks: List<AllMarksEntry> = emptyList(),
+)
+
+@Serializable
+data class AllMarksEntry(
+    val videoId: String,
+    /** True if ANY user marked this video as watched. */
+    val watched: Boolean = false,
+    /** True if ANY user marked this video as favorite. */
+    val favorite: Boolean = false,
+    /** Current user's own watched flag. */
+    val myWatched: Boolean = false,
+    /** Current user's own favorite flag. */
+    val myFavorite: Boolean = false,
 )

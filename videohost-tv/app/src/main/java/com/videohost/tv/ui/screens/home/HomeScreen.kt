@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.videohost.tv.R
 import com.videohost.tv.data.api.VideoHostRepository
-import com.videohost.tv.data.model.MarksBulkEntry
+import com.videohost.tv.data.model.AllMarksEntry
 import com.videohost.tv.data.model.PlaylistFull
 import com.videohost.tv.data.model.PlaylistGroup
 import com.videohost.tv.data.model.VideoItem
@@ -59,7 +59,7 @@ fun HomeScreen(
     var playlists by remember { mutableStateOf<List<PlaylistFull>>(emptyList()) }
     var allVideos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var continueWatching by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
-    var marksMap by remember { mutableStateOf<Map<String, MarksBulkEntry>>(emptyMap()) }
+    var marksMap by remember { mutableStateOf<Map<String, AllMarksEntry>>(emptyMap()) }
     var playlistGroups by remember { mutableStateOf<List<PlaylistGroup>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -70,8 +70,8 @@ fun HomeScreen(
     suspend fun reloadMarks() {
         try {
             val api = repo.getApi()
-            val resp = api.getMyMarks()
-            marksMap = resp.marks.associateBy { it.videoId }
+            val resp = api.getAllMarks()
+            marksMap = resp.marks.associateBy { mark -> mark.videoId }
         } catch (_: Exception) {}
     }
 
@@ -327,7 +327,7 @@ private fun VideoRow(
     videos: List<VideoItem>,
     onItemClick: (VideoItem) -> Unit,
     baseUrl: String = "",
-    marksMap: Map<String, MarksBulkEntry> = emptyMap(),
+    marksMap: Map<String, AllMarksEntry> = emptyMap(),
     onMarkAllWatched: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {

@@ -1,5 +1,6 @@
 package com.videohost.tv.data.api
 
+import com.videohost.tv.data.model.AllMarksResponse
 import com.videohost.tv.data.model.MarksBulkResponse
 import com.videohost.tv.data.model.PlaylistFull
 import com.videohost.tv.data.model.PlaylistGroup
@@ -55,6 +56,10 @@ interface VideoHostApi {
     /** Bulk list of all of the current user's marks. Optional playlistId filter. */
     @GET("api/me/marks")
     suspend fun getMyMarks(@Query("playlistId") playlistId: String? = null): MarksBulkResponse
+
+    /** Bulk list of marks aggregated across ALL users — shows watched/favorite by anyone. */
+    @GET("api/videos/all-marks")
+    suspend fun getAllMarks(): AllMarksResponse
 
     /** Marks every video in the given playlist as "watched" for the current user. */
     @POST("api/playlists/{id}/mark-all-watched")
