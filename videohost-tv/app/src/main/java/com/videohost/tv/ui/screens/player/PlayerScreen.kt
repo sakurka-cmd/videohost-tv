@@ -217,7 +217,14 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             setDefaultRequestProperties(mapOf("Cookie" to "vh_session=$sessionCookie", "User-Agent" to "UTube/1.5"))
         }
         val dsFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpFactory)
-        val mediaItem = MediaItem.Builder().setUri("$baseUrl/api/videos/$videoId/stream").setMimeType("video/mp4").build()
+        // Pass session as query param too — fallback in case cookie header is lost
+        // (happens after fresh install when DataStore timing is unreliable)
+        val streamUrl = if (sessionCookie.isNotEmpty()) {
+            "$baseUrl/api/videos/$videoId/stream?session=$sessionCookie"
+        } else {
+            "$baseUrl/api/videos/$videoId/stream"
+        }
+        val mediaItem = MediaItem.Builder().setUri(streamUrl).setMimeType("video/mp4").build()
         val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory).createMediaSource(mediaItem)
         val player = ExoPlayer.Builder(context).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory)).build()
         player.setMediaSource(mediaSource); player.prepare(); player.playWhenReady = true
