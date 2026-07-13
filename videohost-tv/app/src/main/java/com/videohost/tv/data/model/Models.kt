@@ -111,12 +111,8 @@ data class AllMarksResponse(
 @Serializable
 data class AllMarksEntry(
     val videoId: String,
-    /** True if ANY user marked this video as watched. */
-    val watched: Boolean = false,
-    /** True if ANY user marked this video as favorite. */
-    val favorite: Boolean = false,
-    /** Current user's own watched flag. */
+    val watchedByAny: Boolean = false,
+    val favoriteByAny: Boolean = false,
     val myWatched: Boolean = false,
-    /** Current user's own favorite flag. */
     val myFavorite: Boolean = false,
 )

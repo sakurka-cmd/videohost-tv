@@ -365,8 +365,8 @@ private fun VideoRow(
                     onClick = { onItemClick(v) },
                     modifier = Modifier.size(width = 200.dp, height = 130.dp),
                     baseUrl = baseUrl,
-                    watched = marksMap[v.id]?.watched == true,
-                    favorite = marksMap[v.id]?.favorite == true,
+                    watched = marksMap[v.id]?.watchedByAny == true,
+                    favorite = marksMap[v.id]?.favoriteByAny == true,
                 )
             }
         }
