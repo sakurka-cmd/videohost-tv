@@ -19,13 +19,26 @@ android {
     // Unified signing config — same keystore for BOTH debug and release builds.
     // This prevents INSTALL_FAILED_UPDATE_INCOMPATIBLE when updating APK across
     // different build machines (each machine has its own auto-generated debug keystore).
-    // The keystore is committed to the repo at app/videohost-release.keystore.
+    //
+    // SECURITY: keystore file and passwords are NOT in the repo.
+    // They are read from ../keystore.properties (gitignored, machine-local).
+    // On a fresh build machine, create videohost-tv/keystore.properties with:
+    //   storeFile=videohost-release.keystore
+    //   storePassword=<your-password>
+    //   keyAlias=videohost
+    //   keyPassword=<your-password>
+    // and place the keystore file at videohost-tv/app/videohost-release.keystore.
+    val keystorePropsFile = rootProject.file("keystore.properties")
+    val keystoreProps = java.util.Properties()
+    if (keystorePropsFile.exists()) {
+        keystoreProps.load(keystorePropsFile.inputStream())
+    }
     signingConfigs {
         create("unified") {
-            storeFile = file("videohost-release.keystore")
-            storePassword = "***REMOVED-KEYSTORE-PASS***"
-            keyAlias = "videohost"
-            keyPassword = "***REMOVED-KEYSTORE-PASS***"
+            storeFile = file(keystoreProps.getProperty("storeFile", "videohost-release.keystore"))
+            storePassword = keystoreProps.getProperty("storePassword", System.getenv("KEYSTORE_PASSWORD") ?: "")
+            keyAlias = keystoreProps.getProperty("keyAlias", "videohost")
+            keyPassword = keystoreProps.getProperty("keyPassword", System.getenv("KEY_PASSWORD") ?: "")
         }
     }
 

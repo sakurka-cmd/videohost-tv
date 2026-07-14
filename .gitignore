@@ -1,5 +1,50 @@
-skills/
-node_modules/
+# Build artifacts
 build/
 .gradle/
+node_modules/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Local configuration (DO NOT COMMIT)
+.env
+.env.*
+!.env.example
 local.properties
+keystore.properties
+
+# Signing keys (DO NOT COMMIT)
+*.keystore
+*.jks
+*.p12
+*.pfx
+
+# Database files (DO NOT COMMIT)
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs (DO NOT COMMIT)
+*.log
+*.log.*
+
+# Deploy snapshots / scratch directories
+videohost-deployed/
+scripts/
+tool-results/
+worklog.md
+
+# Python (for yt2tg-bot component)
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Sensitive bundled sources
+download/*.tar.gz
