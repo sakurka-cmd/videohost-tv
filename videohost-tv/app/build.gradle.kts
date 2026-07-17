@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -29,7 +31,7 @@ android {
     //   keyPassword=<your-password>
     // and place the keystore file at videohost-tv/app/videohost-release.keystore.
     val keystorePropsFile = rootProject.file("keystore.properties")
-    val keystoreProps = java.util.Properties()
+    val keystoreProps = Properties()
     if (keystorePropsFile.exists()) {
         keystoreProps.load(keystorePropsFile.inputStream())
     }
