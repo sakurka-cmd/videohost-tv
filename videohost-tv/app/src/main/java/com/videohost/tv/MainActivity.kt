@@ -12,11 +12,16 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.videohost.tv.data.api.VideoHostRepository
+import com.videohost.tv.logging.AppLogger
 import com.videohost.tv.ui.NavGraph
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Init file logger + crash handler FIRST, before anything else can crash
+        AppLogger.init(applicationContext)
+        AppLogger.i("MainActivity", "onCreate, app v2.0.6 (code 14)")
+
         val repo = VideoHostRepository(applicationContext)
         // Read intent extras for CLI provisioning:
         //   adb shell am start -n com.videohost.tv/.MainActivity \
@@ -25,6 +30,7 @@ class MainActivity : ComponentActivity() {
         val serverUrl = intent?.getStringExtra("server_url")
         val username = intent?.getStringExtra("username")
         val password = intent?.getStringExtra("password")
+        if (serverUrl != null) AppLogger.i("MainActivity", "provisioning: url=$serverUrl user=$username")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFFEF4444),
@@ -43,5 +49,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        AppLogger.i("MainActivity", "onDestroy")
+        super.onDestroy()
     }
 }

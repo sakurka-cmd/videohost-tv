@@ -33,6 +33,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,12 +45,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.videohost.tv.R
+import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.model.AllMarksEntry
 import com.videohost.tv.data.model.PlaylistFull
 import com.videohost.tv.data.model.PlaylistGroup
 import com.videohost.tv.data.model.VideoItem
-import kotlinx.coroutines.delay
+import com.videohost.tv.logging.AppLogger
+import com.videohost.tv.ui.components.VideoContextMenu
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -67,15 +74,21 @@ fun HomeScreen(
     var baseUrl by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
+    // Long-press context menu state
+    var contextMenuVideo by remember { mutableStateOf<VideoItem?>(null) }
+
     suspend fun reloadMarks() {
         try {
             val api = repo.getApi()
             val resp = api.getAllMarks()
             marksMap = resp.marks.associateBy { mark -> mark.videoId }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.w("HomeScreen", "reloadMarks failed: ${e.message}")
+        }
     }
 
     LaunchedEffect(Unit) {
+        AppLogger.i("HomeScreen", "LaunchedEffect init")
         try {
             baseUrl = repo.serverUrlFlow.first()
             val api = repo.getApi()
@@ -89,10 +102,12 @@ fun HomeScreen(
             val vids = api.listVideos()
             playlists = pls
             allVideos = vids
+            AppLogger.i("HomeScreen", "loaded ${pls.size} playlists, ${vids.size} videos")
             // Load groups (best-effort — endpoint may not exist on older backends)
             try {
                 playlistGroups = api.listPlaylistGroups()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                AppLogger.w("HomeScreen", "listPlaylistGroups failed: ${e.message}")
                 playlistGroups = emptyList()
             }
             // Build "Continue watching" — for each video, fetch its progress; keep those with > 5s
@@ -106,7 +121,9 @@ fun HomeScreen(
             continueWatching = cont
             reloadMarks()
             loading = false
+            AppLogger.i("HomeScreen", "init done, loading=false")
         } catch (e: Exception) {
+            AppLogger.e("HomeScreen", "init failed", e)
             error = "Не удалось загрузить данные: ${e.message ?: "неизвестная ошибка"}"
             loading = false
         }
@@ -123,6 +140,40 @@ fun HomeScreen(
                 try { playlistGroups = api.listPlaylistGroups() } catch (_: Exception) {}
                 reloadMarks()
             } catch (_: Exception) {}
+        }
+    }
+
+    // Long-press menu handlers
+    val onToggleWatched: () -> Unit = {
+        val v = contextMenuVideo
+        if (v != null) {
+            scope.launch {
+                try {
+                    val api = repo.getApi()
+                    val current = marksMap[v.id]?.myWatched == true
+                    api.putMarks(v.id, MarkUpdateRequest(watched = !current))
+                    reloadMarks()
+                    AppLogger.i("HomeScreen", "toggle watched for ${v.id} → ${!current}")
+                } catch (e: Exception) {
+                    AppLogger.e("HomeScreen", "toggle watched failed", e)
+                }
+            }
+        }
+    }
+    val onToggleFavorite: () -> Unit = {
+        val v = contextMenuVideo
+        if (v != null) {
+            scope.launch {
+                try {
+                    val api = repo.getApi()
+                    val current = marksMap[v.id]?.myFavorite == true
+                    api.putMarks(v.id, MarkUpdateRequest(favorite = !current))
+                    reloadMarks()
+                    AppLogger.i("HomeScreen", "toggle favorite for ${v.id} → ${!current}")
+                } catch (e: Exception) {
+                    AppLogger.e("HomeScreen", "toggle favorite failed", e)
+                }
+            }
         }
     }
 
@@ -209,6 +260,7 @@ fun HomeScreen(
                                     onItemClick = { v ->
                                         onPlayVideo(null, v.id, continueWatching.map { it.id }, continueWatching.map { it.title })
                                     },
+                                    onItemLongPress = { v -> contextMenuVideo = v },
                                 )
                             }
                         }
@@ -222,6 +274,7 @@ fun HomeScreen(
                                     onItemClick = { v ->
                                         onPlayVideo(null, v.id, allVideos.map { it.id }, allVideos.map { it.title })
                                     },
+                                    onItemLongPress = { v -> contextMenuVideo = v },
                                 )
                             }
                         }
@@ -243,6 +296,7 @@ fun HomeScreen(
                                         onItemClick = { v ->
                                             onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title })
                                         },
+                                        onItemLongPress = { v -> contextMenuVideo = v },
                                         onMarkAllWatched = {
                                             scope.launch {
                                                 try {
@@ -279,6 +333,7 @@ fun HomeScreen(
                                             onItemClick = { v ->
                                                 onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title })
                                             },
+                                            onItemLongPress = { v -> contextMenuVideo = v },
                                             onMarkAllWatched = {
                                                 scope.launch {
                                                     try {
@@ -297,7 +352,40 @@ fun HomeScreen(
                 }
             }
         }
+
+        // Long-press context menu overlay
+        contextMenuVideo?.let { v ->
+            val marks = marksMap[v.id]
+            VideoContextMenu(
+                video = v,
+                watched = marks?.watchedByAny == true,
+                favorite = marks?.favoriteByAny == true,
+                onToggleWatched = onToggleWatched,
+                onToggleFavorite = onToggleFavorite,
+                onPlay = {
+                    // Play within the row's context (find which list it belongs to)
+                    val list = continueWalkingListFor(v, continueWatching, allVideos, playlists)
+                    onPlayVideo(null, v.id, list.map { it.id }, list.map { it.title })
+                },
+                onDismiss = { contextMenuVideo = null },
+            )
+        }
     }
+}
+
+private fun continueWalkingListFor(
+    v: VideoItem,
+    continueWatching: List<VideoItem>,
+    allVideos: List<VideoItem>,
+    playlists: List<PlaylistFull>,
+): List<VideoItem> {
+    if (continueWatching.any { it.id == v.id }) return continueWatching
+    if (allVideos.any { it.id == v.id }) return allVideos
+    for (pl in playlists) {
+        val plVids = pl.items.map { it.video }
+        if (plVids.any { it.id == v.id }) return plVids
+    }
+    return listOf(v)
 }
 
 @Composable
@@ -328,6 +416,7 @@ private fun VideoRow(
     onItemClick: (VideoItem) -> Unit,
     baseUrl: String = "",
     marksMap: Map<String, AllMarksEntry> = emptyMap(),
+    onItemLongPress: (VideoItem) -> Unit = {},
     onMarkAllWatched: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -363,6 +452,7 @@ private fun VideoRow(
                 VideoCard(
                     video = v,
                     onClick = { onItemClick(v) },
+                    onLongPress = { onItemLongPress(v) },
                     modifier = Modifier.size(width = 200.dp, height = 130.dp),
                     baseUrl = baseUrl,
                     watched = marksMap[v.id]?.watchedByAny == true,
@@ -377,6 +467,7 @@ private fun VideoRow(
 private fun VideoCard(
     video: VideoItem,
     onClick: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
     baseUrl: String = "",
     watched: Boolean = false,
@@ -384,7 +475,15 @@ private fun VideoCard(
 ) {
     Card(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.onPreviewKeyEvent { e ->
+            // TV remote: Menu key opens context menu (standard Android TV pattern)
+            if (e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
+                onLongPress()
+                true
+            } else {
+                false
+            }
+        },
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color(0xFF1F1F23),

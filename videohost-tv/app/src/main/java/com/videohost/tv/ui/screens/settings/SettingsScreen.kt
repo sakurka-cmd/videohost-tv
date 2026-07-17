@@ -1,11 +1,14 @@
 package com.videohost.tv.ui.screens.settings
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -27,11 +30,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.videohost.tv.data.api.VideoHostRepository
+import com.videohost.tv.logging.AppLogger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -39,8 +46,10 @@ fun SettingsScreen(
     onDone: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var url by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
     val urlFocus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
@@ -85,6 +94,9 @@ fun SettingsScreen(
             error?.let {
                 Text(it, color = Color(0xFFEF4444), fontSize = 13.sp)
             }
+            status?.let {
+                Text(it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            }
 
             Button(
                 onClick = {
@@ -111,6 +123,52 @@ fun SettingsScreen(
                 modifier = Modifier.width(500.dp).height(48.dp),
             ) {
                 Text("Сохранить")
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Диагностика", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Button(
+                    onClick = {
+                        status = "Сбор логов..."
+                        scope.launch {
+                            val logs = withContext(Dispatchers.IO) { AppLogger.collectForShare() }
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, "UTube logs")
+                                putExtra(Intent.EXTRA_TEXT, logs)
+                            }
+                            status = "Логи собраны (${logs.length} символов) — выберите приложение"
+                            context.startActivity(Intent.createChooser(intent, "Отправить логи"))
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1F1F23),
+                        contentColor = Color.White,
+                    ),
+                    modifier = Modifier.weight(1f).height(44.dp),
+                ) {
+                    Text("Отправить логи", fontSize = 12.sp)
+                }
+                Button(
+                    onClick = {
+                        AppLogger.clearLogs()
+                        status = "Логи очищены"
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1F1F23),
+                        contentColor = Color.White.copy(alpha = 0.7f),
+                    ),
+                    modifier = Modifier.weight(1f).height(44.dp),
+                ) {
+                    Text("Очистить", fontSize = 12.sp)
+                }
             }
         }
     }
