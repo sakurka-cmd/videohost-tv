@@ -269,3 +269,83 @@ MIT
 - `backfill_period_keyboard` not imported.
 - Menu button handler — `BUTTON_ALIASES` lookup was broken.
 - Backfill, cancel, and _process_backfill restored (were lost in rebuilds).
+
+---
+
+## Security history
+
+### 2026-07-14 — Critical: leaked secrets in public git history
+
+During a security audit, **critical secrets were discovered committed in the public git history** of this repository:
+
+- VPS1 root SSH password (`JnLNWOpMm2GF`) — hardcoded in 47 deploy scripts in `scripts/`
+- Full Telegram bot token (`8865321893:AAGHmO8t_vxQ7toYNGKle5p3Qffr76H4h8A`) — in `scripts/fix_bot.py`, `scripts/deploy_bot_fix.py`, `scripts/vps_verify.py`, `worklog.md`, `download/vps_diagnose_v2.log`
+- VideoHost Bot API token (`2d701eee…`) — in 24 scripts + a leaked SQLite DB `videohost-deployed/videohost_data_restored.db` (table `BotToken`)
+- APK signing keystore password (`videohost123`) — in `videohost-tv/app/build.gradle.kts`, alongside the keystore file itself (`videohost-tv/app/videohost-release.keystore`)
+- User password hashes (scrypt, salted) — in `videohost-deployed/*.db` (tables `User` for admin and x4)
+- Admin Telegram ID and name (8114519, @BardanosVV) — in `worklog.md`
+- 22 deploy log files in `download/` containing IPs, paths, and stack traces
+
+**Remediation performed:**
+
+1. History rewritten via `git filter-repo`:
+   - Removed entirely: `videohost-deployed/`, `scripts/`, `worklog.md`, `tool-results/`, all `*.log` in `download/`, `videohost-tv/app/videohost-release.keystore`, `.env`, `download/VideoHostTV-source-v1.0.tar.gz`
+   - String-replaced: `JnLNWOpMm2GF`, TG token, VH token, `ghp_*` tokens, `admin123`, `videohost123` → `***REMOVED***`
+2. New commit `594ab22`: `build.gradle.kts` reads keystore password from `keystore.properties` (gitignored) instead of hardcoding it
+3. `.gitignore` expanded to prevent future leaks: `.env`, `*.keystore`, `*.jks`, `*.db`, `*.log`, `scripts/`, `tool-results/`, `worklog.md`, `keystore.properties`
+4. Force-pushed to GitHub (all existing clones/forks became incompatible)
+5. Tags `v1.6` and `v1.7` rewritten to new SHAs
+
+**Important for build machines:**
+After pulling the cleaned history, you must create `videohost-tv/keystore.properties` locally (gitignored) with:
+```properties
+storeFile=videohost-release.keystore
+storePassword=<your-password>
+keyAlias=videohost
+keyPassword=<your-password>
+```
+and place the keystore file at `videohost-tv/app/videohost-release.keystore` (also gitignored — get it from a secure backup).
+
+**Manual follow-up required (cannot be done via git):**
+- Rotate VPS1 root password
+- Revoke Telegram bot token via @BotFather `/revoke`
+- Reissue VideoHost Bot API token in admin panel
+- Change passwords for `admin` and `x4` users in VideoHost
+- Rotate APK keystore (generate new one with different password) — old one is compromised
+- Invalidate all `vh_session` cookies in the User table
+
+**Audit artifacts:** detailed PDF report at the time of audit (not in repo — contained masked secrets for reference).
+
+---
+
+## Repository structure
+
+This repo historically contains two related projects (kept together for simplicity):
+
+```
+.
+├── bot/                    # yt2tg-bot — Telegram bot (Python, pyTelegramBotAPI)
+│                          # See README above for full bot documentation
+├── download/              # Built APKs for distribution
+│   ├── VideoHostTV-debug-v2.0.5.apk
+│   └── README.md          # APK distribution notes
+├── videohost-tv/           # Android TV application (Kotlin + Compose + Media3)
+│   ├── app/
+│   │   ├── build.gradle.kts       # Signing config reads from keystore.properties
+│   │   └── src/main/              # Kotlin sources
+│   ├── gradle/
+│   ├── build.gradle.kts
+│   ├── settings.gradle.kts
+│   ├── gradlew
+│   └── README.md          # Full Android app documentation
+├── requirements.txt        # Python deps for bot/
+├── yt2tg-bot.service       # systemd unit for the bot
+├── .env.example            # Bot env template (no secrets)
+└── .gitignore              # Strict — blocks .env, *.keystore, *.db, *.log, etc.
+```
+
+The `videohost-tv/` subdirectory has its own README with full Android app documentation (features, D-pad controls, build instructions, ADB provisioning).
+
+## Infrastructure configs
+
+Systemd overrides, journald limits, cleanup scripts, and operational documentation for VPS1/VPS2 are maintained in a separate **private** repository: [`sakurka-cmd/infra`](https://github.com/sakurka-cmd/infra). See its `docs/OPS.md` for the full runbook.
