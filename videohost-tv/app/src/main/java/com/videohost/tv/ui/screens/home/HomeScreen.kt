@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -186,7 +185,7 @@ fun HomeScreen(
             .onPreviewKeyEvent { e ->
                 // DEBUG: log all key events to file logger (so user can send logs from Settings)
                 if (e.type == KeyEventType.KeyDown) {
-                    AppLogger.d("KeyEvent", "key=${e.key} type=${e.type} nativeKeyCode=${e.nativeKeyCode}")
+                    AppLogger.d("KeyEvent", "key=${e.key} type=${e.type}")
                 }
                 false  // don't intercept — let normal focus traversal handle it
             },
