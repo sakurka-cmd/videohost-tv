@@ -475,8 +475,12 @@ private fun VideoCard(
 ) {
     Card(
         onClick = onClick,
-        modifier = modifier.onPreviewKeyEvent { e ->
-            // TV remote: Menu key opens context menu (standard Android TV pattern)
+        modifier = modifier.onKeyEvent { e ->
+            // TV remote: Menu key opens context menu (standard Android TV pattern).
+            // Use onKeyEvent (not onPreviewKeyEvent) to avoid intercepting arrow
+            // keys — onPreviewKeyEvent returning false for D-pad events can trigger
+            // a Compose bug where LazyRow's BeyondBoundsLayout searches detached nodes
+            // and crashes with "LayoutCoordinate operations are only valid when isAttached".
             if (e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
                 onLongPress()
                 true
