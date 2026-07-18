@@ -305,12 +305,8 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             // All other keys: KeyUp only (original behavior)
             if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
             lastInteraction = System.currentTimeMillis(); controlsVisible = true
-            // X4 remote quirk: OK button arrives as HID code 0x60, not mapped to
-            // Key.DirectionCenter in Compose 1.5.14. Treat both as OK.
-            // Also log every key for debugging (so user can send logs to identify Menu key)
-            AppLogger.i("PlayerScreen", "key=${e.key} type=${e.type}")
             when (e.key) {
-                Key.DirectionCenter, Key.Enter, Key(94489280512L) -> { cancelSeekHold(); currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
+                Key.DirectionCenter, Key.Enter -> { cancelSeekHold(); currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
                 Key.DirectionUp -> { cancelSeekHold(); switchTo(currentIndex - 1); true }
                 Key.DirectionDown -> { cancelSeekHold(); switchTo(currentIndex + 1); true }
                 Key.Menu -> { cancelSeekHold(); cycleSpeed(); true }

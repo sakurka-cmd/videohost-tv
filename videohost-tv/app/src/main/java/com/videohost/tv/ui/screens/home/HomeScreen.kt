@@ -181,13 +181,7 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F10))
-            .onPreviewKeyEvent { e ->
-                // DEBUG: log all key events to file logger (so user can send logs from Settings)
-                // Log EVERY event (Down, Up, multiple) so we can see exact key codes from any remote
-                AppLogger.i("KeyEvent", "key=${e.key} keyCode=${e.key.keyCode} type=${e.type}")
-                false  // don't intercept — let normal focus traversal handle it
-            },
+            .background(Color(0xFF0F0F10)),
     ) {
         when {
             loading -> {
@@ -480,58 +474,18 @@ private fun VideoCard(
     watched: Boolean = false,
     favorite: Boolean = false,
 ) {
-    // Track OK button press duration for long-press detection.
-    // Standard Android TV pattern: long-press OK (DPAD_CENTER) >500ms = context menu.
-    // Also respond to Menu key (some remotes have a dedicated Menu button).
-    //
-    // X4 remote sends HID code 0x60 (Keyboard OK) which Compose 1.5.14 may not map to
-    // Key.DirectionCenter. We compare both: the named Key (DirectionCenter) AND the
-    // raw Long value we observed from the X4 pult (94489280512L = 0x16000000000).
-    val okKeys = setOf(Key.DirectionCenter, Key(94489280512L))
-    var pressStartTime by remember { mutableStateOf(0L) }
-    var longPressFired by remember { mutableStateOf(false) }
-
     Card(
         onClick = onClick,
         modifier = modifier.onKeyEvent { e ->
-            val isOk = e.key in okKeys
-            when {
-                // OK pressed down — start tracking
-                e.type == KeyEventType.KeyDown && isOk -> {
-                    pressStartTime = System.currentTimeMillis()
-                    longPressFired = false
-                    false  // let click handle short-press; we'll detect long-press on KeyUp
-                }
-                // OK released — check if it was a long press
-                e.type == KeyEventType.KeyUp && isOk -> {
-                    val duration = System.currentTimeMillis() - pressStartTime
-                    if (duration >= 500 && !longPressFired) {
-                        AppLogger.i("VideoCard", "long-press OK detected (${duration}ms) for video ${video.id}")
-                        onLongPress()
-                        true  // consume — don't let onClick fire
-                    } else {
-                        false  // short press — let Card.onClick handle it
-                    }
-                }
-                // Repeat KeyDown events come in while holding — fire long-press after threshold
-                e.type == KeyEventType.KeyDown && isOk && pressStartTime > 0 && !longPressFired -> {
-                    val duration = System.currentTimeMillis() - pressStartTime
-                    if (duration >= 500) {
-                        longPressFired = true
-                        AppLogger.i("VideoCard", "long-press OK fired on repeat (${duration}ms) for video ${video.id}")
-                        onLongPress()
-                        true
-                    } else {
-                        false
-                    }
-                }
-                // Menu key (some remotes have a dedicated button)
-                e.type == KeyEventType.KeyDown && e.key == Key.Menu -> {
-                    AppLogger.i("VideoCard", "Menu key for video ${video.id}")
-                    onLongPress()
-                    true
-                }
-                else -> false
+            // TV remote: Menu key opens context menu.
+            // D-pad events (including right) are NOT intercepted — they go to
+            // standard Compose focus traversal (LazyRow scrolls horizontally).
+            if (e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
+                AppLogger.i("VideoCard", "Menu key for video ${video.id}")
+                onLongPress()
+                true
+            } else {
+                false
             }
         },
         shape = RoundedCornerShape(8.dp),
