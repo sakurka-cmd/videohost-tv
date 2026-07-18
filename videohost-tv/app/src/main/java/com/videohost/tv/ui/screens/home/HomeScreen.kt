@@ -184,9 +184,8 @@ fun HomeScreen(
             .background(Color(0xFF0F0F10))
             .onPreviewKeyEvent { e ->
                 // DEBUG: log all key events to file logger (so user can send logs from Settings)
-                if (e.type == KeyEventType.KeyDown) {
-                    AppLogger.d("KeyEvent", "key=${e.key} type=${e.type}")
-                }
+                // Log EVERY event (Down, Up, multiple) so we can see exact key codes from any remote
+                AppLogger.i("KeyEvent", "key=${e.key} keyCode=${e.key.keyCode} type=${e.type}")
                 false  // don't intercept — let normal focus traversal handle it
             },
     ) {

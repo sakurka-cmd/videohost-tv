@@ -14,8 +14,8 @@ android {
         applicationId = "com.videohost.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 16
-        versionName = "2.0.8"
+        versionCode = 17
+        versionName = "2.0.9"
     }
 
     // Unified signing config — same keystore for BOTH debug and release builds.
