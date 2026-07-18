@@ -483,24 +483,30 @@ private fun VideoCard(
     // Track OK button press duration for long-press detection.
     // Standard Android TV pattern: long-press OK (DPAD_CENTER) >500ms = context menu.
     // Also respond to Menu key (some remotes have a dedicated Menu button).
+    //
+    // X4 remote sends HID code 0x60 (Keyboard OK) which Compose 1.5.14 may not map to
+    // Key.DirectionCenter. We compare both: the named Key (DirectionCenter) AND the
+    // raw Long value we observed from the X4 pult (94489280512L = 0x16000000000).
+    val okKeys = setOf(Key.DirectionCenter, Key(94489280512L))
     var pressStartTime by remember { mutableStateOf(0L) }
     var longPressFired by remember { mutableStateOf(false) }
 
     Card(
         onClick = onClick,
         modifier = modifier.onKeyEvent { e ->
+            val isOk = e.key in okKeys
             when {
                 // OK pressed down — start tracking
-                e.type == KeyEventType.KeyDown && e.key == Key.DirectionCenter -> {
+                e.type == KeyEventType.KeyDown && isOk -> {
                     pressStartTime = System.currentTimeMillis()
                     longPressFired = false
                     false  // let click handle short-press; we'll detect long-press on KeyUp
                 }
                 // OK released — check if it was a long press
-                e.type == KeyEventType.KeyUp && e.key == Key.DirectionCenter -> {
+                e.type == KeyEventType.KeyUp && isOk -> {
                     val duration = System.currentTimeMillis() - pressStartTime
                     if (duration >= 500 && !longPressFired) {
-                        AppLogger.d("VideoCard", "long-press OK detected (${duration}ms) for video ${video.id}")
+                        AppLogger.i("VideoCard", "long-press OK detected (${duration}ms) for video ${video.id}")
                         onLongPress()
                         true  // consume — don't let onClick fire
                     } else {
@@ -508,11 +514,11 @@ private fun VideoCard(
                     }
                 }
                 // Repeat KeyDown events come in while holding — fire long-press after threshold
-                e.type == KeyEventType.KeyDown && e.key == Key.DirectionCenter && pressStartTime > 0 && !longPressFired -> {
+                e.type == KeyEventType.KeyDown && isOk && pressStartTime > 0 && !longPressFired -> {
                     val duration = System.currentTimeMillis() - pressStartTime
                     if (duration >= 500) {
                         longPressFired = true
-                        AppLogger.d("VideoCard", "long-press OK fired on repeat (${duration}ms) for video ${video.id}")
+                        AppLogger.i("VideoCard", "long-press OK fired on repeat (${duration}ms) for video ${video.id}")
                         onLongPress()
                         true
                     } else {
@@ -521,7 +527,7 @@ private fun VideoCard(
                 }
                 // Menu key (some remotes have a dedicated button)
                 e.type == KeyEventType.KeyDown && e.key == Key.Menu -> {
-                    AppLogger.d("VideoCard", "Menu key for video ${video.id}")
+                    AppLogger.i("VideoCard", "Menu key for video ${video.id}")
                     onLongPress()
                     true
                 }
