@@ -47,6 +47,7 @@ import androidx.media3.ui.PlayerView
 import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
+import com.videohost.tv.logging.AppLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -248,6 +249,12 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         return player
     }
     LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
+    fun cycleSpeed() {
+        speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size
+        scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }
+        speedOverlay = true
+        AppLogger.i("PlayerScreen", "speed cycled to ${PLAYBACK_SPEEDS[speedIdx]}x")
+    }
     fun switchTo(idx: Int) {
         cancelSeekHold()  // reset seek state on video switch
         if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx])
@@ -298,11 +305,15 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             // All other keys: KeyUp only (original behavior)
             if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
             lastInteraction = System.currentTimeMillis(); controlsVisible = true
+            // X4 remote quirk: OK button arrives as HID code 0x60, not mapped to
+            // Key.DirectionCenter in Compose 1.5.14. Treat both as OK.
+            // Also log every key for debugging (so user can send logs to identify Menu key)
+            AppLogger.i("PlayerScreen", "key=${e.key} type=${e.type}")
             when (e.key) {
-                Key.DirectionCenter, Key.Enter -> { cancelSeekHold(); currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
+                Key.DirectionCenter, Key.Enter, Key(94489280512L) -> { cancelSeekHold(); currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
                 Key.DirectionUp -> { cancelSeekHold(); switchTo(currentIndex - 1); true }
                 Key.DirectionDown -> { cancelSeekHold(); switchTo(currentIndex + 1); true }
-                Key.Menu -> { cancelSeekHold(); speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
+                Key.Menu -> { cancelSeekHold(); cycleSpeed(); true }
                 Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
                 Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
                 Key.Back -> { cancelSeekHold(); scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
