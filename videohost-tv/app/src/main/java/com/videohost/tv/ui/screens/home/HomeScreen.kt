@@ -36,7 +36,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -180,7 +182,14 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F10)),
+            .background(Color(0xFF0F0F10))
+            .onPreviewKeyEvent { e ->
+                // DEBUG: log all key events to file logger (so user can send logs from Settings)
+                if (e.type == KeyEventType.KeyDown) {
+                    AppLogger.d("KeyEvent", "key=${e.key} type=${e.type} nativeKeyCode=${e.nativeKeyCode}")
+                }
+                false  // don't intercept — let normal focus traversal handle it
+            },
     ) {
         when {
             loading -> {
@@ -473,19 +482,52 @@ private fun VideoCard(
     watched: Boolean = false,
     favorite: Boolean = false,
 ) {
+    // Track OK button press duration for long-press detection.
+    // Standard Android TV pattern: long-press OK (DPAD_CENTER) >500ms = context menu.
+    // Also respond to Menu key (some remotes have a dedicated Menu button).
+    var pressStartTime by remember { mutableStateOf(0L) }
+    var longPressFired by remember { mutableStateOf(false) }
+
     Card(
         onClick = onClick,
         modifier = modifier.onKeyEvent { e ->
-            // TV remote: Menu key opens context menu (standard Android TV pattern).
-            // Use onKeyEvent (not onPreviewKeyEvent) to avoid intercepting arrow
-            // keys — onPreviewKeyEvent returning false for D-pad events can trigger
-            // a Compose bug where LazyRow's BeyondBoundsLayout searches detached nodes
-            // and crashes with "LayoutCoordinate operations are only valid when isAttached".
-            if (e.type == KeyEventType.KeyDown && e.key == Key.Menu) {
-                onLongPress()
-                true
-            } else {
-                false
+            when {
+                // OK pressed down — start tracking
+                e.type == KeyEventType.KeyDown && e.key == Key.DirectionCenter -> {
+                    pressStartTime = System.currentTimeMillis()
+                    longPressFired = false
+                    false  // let click handle short-press; we'll detect long-press on KeyUp
+                }
+                // OK released — check if it was a long press
+                e.type == KeyEventType.KeyUp && e.key == Key.DirectionCenter -> {
+                    val duration = System.currentTimeMillis() - pressStartTime
+                    if (duration >= 500 && !longPressFired) {
+                        AppLogger.d("VideoCard", "long-press OK detected (${duration}ms) for video ${video.id}")
+                        onLongPress()
+                        true  // consume — don't let onClick fire
+                    } else {
+                        false  // short press — let Card.onClick handle it
+                    }
+                }
+                // Repeat KeyDown events come in while holding — fire long-press after threshold
+                e.type == KeyEventType.KeyDown && e.key == Key.DirectionCenter && pressStartTime > 0 && !longPressFired -> {
+                    val duration = System.currentTimeMillis() - pressStartTime
+                    if (duration >= 500) {
+                        longPressFired = true
+                        AppLogger.d("VideoCard", "long-press OK fired on repeat (${duration}ms) for video ${video.id}")
+                        onLongPress()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                // Menu key (some remotes have a dedicated button)
+                e.type == KeyEventType.KeyDown && e.key == Key.Menu -> {
+                    AppLogger.d("VideoCard", "Menu key for video ${video.id}")
+                    onLongPress()
+                    true
+                }
+                else -> false
             }
         },
         shape = RoundedCornerShape(8.dp),
