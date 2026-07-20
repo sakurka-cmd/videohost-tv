@@ -332,7 +332,15 @@ This repo historically contains two related projects (kept together for simplici
 ├── videohost-tv/           # Android TV application (Kotlin + Compose + Media3)
 │   ├── app/
 │   │   ├── build.gradle.kts       # Signing config reads from keystore.properties
-│   │   └── src/main/              # Kotlin sources
+│   │   └── src/main/
+│   │       ├── java/com/videohost/tv/
+│   │       │   ├── MainActivity.kt        # Compose entry point (Home, Settings, Login)
+│   │       │   ├── PlayerActivity.kt      # Native Activity for video playback (v2.2.0+)
+│   │       │   ├── logging/AppLogger.kt   # File logger + crash handler
+│   │       │   └── ui/                    # Compose screens (Home, Login, Settings, NavGraph)
+│   │       └── res/layout/
+│   │           ├── player_activity.xml    # PlayerView with SurfaceView (native Activity)
+│   │           └── player_view.xml        # PlayerView with TextureView (legacy, unused)
 │   ├── gradle/
 │   ├── build.gradle.kts
 │   ├── settings.gradle.kts
