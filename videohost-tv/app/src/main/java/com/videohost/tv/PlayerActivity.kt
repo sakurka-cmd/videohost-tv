@@ -129,8 +129,8 @@ class PlayerActivity : Activity() {
             if (idx >= 0) speedIdx = idx
         }
 
-        // Build and start player
-        buildPlayer(currentVideoId)
+        // Build and start player (async — never block main thread)
+        scope.launch { buildPlayer(currentVideoId) }
 
         // Auto-hide controls after 5s
         lastInteraction = System.currentTimeMillis()
@@ -147,10 +147,11 @@ class PlayerActivity : Activity() {
 
     // ── Player setup ───────────────────────────────────────────
 
-    private fun buildPlayer(videoId: String) {
+    private suspend fun buildPlayer(videoId: String) {
         player?.release()
-        val baseUrl = kotlinx.coroutines.runBlocking { repo.serverUrlFlow.first() }
-        val session = kotlinx.coroutines.runBlocking { repo.sessionCookieFlow.first() }
+        // Read DataStore async — NEVER use runBlocking on main thread
+        val baseUrl = repo.serverUrlFlow.first()
+        val session = repo.sessionCookieFlow.first()
         val streamUrl = if (session.isNotEmpty()) {
             "$baseUrl/api/videos/$videoId/stream?session=$session"
         } else {
@@ -166,7 +167,6 @@ class PlayerActivity : Activity() {
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_ENDED) {
-                        // Clear progress + advance to next
                         scope.launch {
                             try { repo.getApi().deleteProgress(videoId) } catch (_: Exception) {}
                         }
@@ -178,14 +178,12 @@ class PlayerActivity : Activity() {
         playerView.player = player
 
         // Seek to saved position
-        scope.launch {
-            try {
-                val p = repo.getApi().getProgress(videoId)
-                if (p.positionSec > 5f) {
-                    player?.seekTo((p.positionSec * 1000).toLong())
-                }
-            } catch (_: Exception) {}
-        }
+        try {
+            val p = repo.getApi().getProgress(videoId)
+            if (p.positionSec > 5f) {
+                player?.seekTo((p.positionSec * 1000).toLong())
+            }
+        } catch (_: Exception) {}
 
         // Progress sync loop
         scope.launch {
