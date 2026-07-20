@@ -237,7 +237,7 @@ class PlayerActivity : Activity() {
         currentVideoId = allVideoIds[idx]
         currentTitle = allVideoTitles.getOrNull(idx) ?: ""
         titleText.text = currentTitle
-        buildPlayer(currentVideoId)
+        scope.launch { buildPlayer(currentVideoId) }
     }
 
     // ── Speed ──────────────────────────────────────────────────
