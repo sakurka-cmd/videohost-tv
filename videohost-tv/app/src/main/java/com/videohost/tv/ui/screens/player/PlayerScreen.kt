@@ -47,7 +47,6 @@ import androidx.media3.ui.PlayerView
 import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
-import com.videohost.tv.logging.AppLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -249,12 +248,6 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         return player
     }
     LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
-    fun cycleSpeed() {
-        speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size
-        scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }
-        speedOverlay = true
-        AppLogger.i("PlayerScreen", "speed cycled to ${PLAYBACK_SPEEDS[speedIdx]}x")
-    }
     fun switchTo(idx: Int) {
         cancelSeekHold()  // reset seek state on video switch
         if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx])
@@ -309,7 +302,7 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                 Key.DirectionCenter, Key.Enter -> { cancelSeekHold(); currentPlayer?.let { it.playWhenReady = !it.playWhenReady }; true }
                 Key.DirectionUp -> { cancelSeekHold(); switchTo(currentIndex - 1); true }
                 Key.DirectionDown -> { cancelSeekHold(); switchTo(currentIndex + 1); true }
-                Key.Menu -> { cancelSeekHold(); cycleSpeed(); true }
+                Key.Menu -> { cancelSeekHold(); speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
                 Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
                 Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
                 Key.Back -> { cancelSeekHold(); scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
@@ -319,13 +312,7 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     ) {
         currentPlayer?.let { player ->
             AndroidView(
-                factory = { ctx ->
-                    // Use XML layout with texture_view surface type.
-                    // VONTAR H1 (Allwinner H6) doesn't render SurfaceView inside Compose.
-                    val view = android.view.LayoutInflater.from(ctx)
-                        .inflate(com.videohost.tv.R.layout.player_view, null) as PlayerView
-                    view
-                },
+                factory = { ctx -> PlayerView(ctx).apply { useController = false } },
                 update = { playerView -> playerView.player = player },
                 modifier = Modifier.fillMaxSize(),
             )
