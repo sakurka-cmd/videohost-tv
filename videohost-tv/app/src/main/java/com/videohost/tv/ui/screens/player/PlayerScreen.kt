@@ -319,7 +319,13 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     ) {
         currentPlayer?.let { player ->
             AndroidView(
-                factory = { ctx -> PlayerView(ctx).apply { useController = false } },
+                factory = { ctx ->
+                    // Use XML layout with texture_view surface type.
+                    // VONTAR H1 (Allwinner H6) doesn't render SurfaceView inside Compose.
+                    val view = android.view.LayoutInflater.from(ctx)
+                        .inflate(com.videohost.tv.R.layout.player_view, null) as PlayerView
+                    view
+                },
                 update = { playerView -> playerView.player = player },
                 modifier = Modifier.fillMaxSize(),
             )
