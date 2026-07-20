@@ -10,7 +10,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.LoginRequest
-import com.videohost.tv.PlayerActivity
 import com.videohost.tv.ui.screens.home.HomeScreen
 import com.videohost.tv.ui.screens.login.LoginScreen
 import com.videohost.tv.ui.screens.player.PlayerScreen
@@ -136,15 +135,15 @@ fun NavGraph(repo: VideoHostRepository, serverUrl: String? = null, username: Str
             HomeScreen(
                 repo = repo,
                 onPlayVideo = { playlistId, videoId, allIds, allTitles ->
-                    // Launch PlayerActivity (native Activity, not Compose) — works on all devices
-                    val ctx = nav.context
-                    val intent = android.content.Intent(ctx, PlayerActivity::class.java).apply {
-                        putExtra(PlayerActivity.EXTRA_PLAYLIST_ID, playlistId)
-                        putExtra(PlayerActivity.EXTRA_VIDEO_ID, videoId)
-                        putStringArrayListExtra(PlayerActivity.EXTRA_ALL_IDS, ArrayList(allIds))
-                        putStringArrayListExtra(PlayerActivity.EXTRA_ALL_TITLES, ArrayList(allTitles))
-                    }
-                    ctx.startActivity(intent)
+                    val target = PlaybackTarget(
+                        playlistId = playlistId,
+                        videoId = videoId,
+                        allVideoIds = allIds,
+                        allVideoTitles = allTitles,
+                    )
+                    val json = Json.encodeToString(PlaybackTarget.serializer(), target)
+                    val encoded = URLEncoder.encode(json, "UTF-8")
+                    nav.navigate("${Routes.Player}/$encoded")
                 },
                 onOpenSettings = {
                     nav.navigate(Routes.Settings)
