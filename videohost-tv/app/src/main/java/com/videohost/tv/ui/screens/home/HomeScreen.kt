@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     repo: VideoHostRepository,
-    onPlayVideo: (playlistId: String?, videoId: String, allIds: List<String>, allTitles: List<String>) -> Unit,
+    onPlayVideo: (playlistId: String?, videoId: String, allIds: List<String>, allTitles: List<String>, allHasSubtitles: List<Boolean>) -> Unit,
     onOpenSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -259,7 +259,7 @@ fun HomeScreen(
                                     baseUrl = baseUrl,
                                     marksMap = marksMap,
                                     onItemClick = { v ->
-                                        onPlayVideo(null, v.id, continueWatching.map { it.id }, continueWatching.map { it.title })
+                                        onPlayVideo(null, v.id, continueWatching.map { it.id }, continueWatching.map { it.title }, continueWatching.map { it.hasSubtitles })
                                     },
                                     onItemLongPress = { v -> contextMenuVideo = v },
                                 )
@@ -273,7 +273,7 @@ fun HomeScreen(
                                     baseUrl = baseUrl,
                                     marksMap = marksMap,
                                     onItemClick = { v ->
-                                        onPlayVideo(null, v.id, allVideos.map { it.id }, allVideos.map { it.title })
+                                        onPlayVideo(null, v.id, allVideos.map { it.id }, allVideos.map { it.title }, allVideos.map { it.hasSubtitles })
                                     },
                                     onItemLongPress = { v -> contextMenuVideo = v },
                                 )
@@ -295,7 +295,7 @@ fun HomeScreen(
                                         baseUrl = baseUrl,
                                         marksMap = marksMap,
                                         onItemClick = { v ->
-                                            onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title })
+                                            onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title }, plVideos.map { it.hasSubtitles })
                                         },
                                         onItemLongPress = { v -> contextMenuVideo = v },
                                         onMarkAllWatched = {
@@ -332,7 +332,7 @@ fun HomeScreen(
                                             baseUrl = baseUrl,
                                             marksMap = marksMap,
                                             onItemClick = { v ->
-                                                onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title })
+                                                onPlayVideo(pl.id, v.id, plVideos.map { it.id }, plVideos.map { it.title }, plVideos.map { it.hasSubtitles })
                                             },
                                             onItemLongPress = { v -> contextMenuVideo = v },
                                             onMarkAllWatched = {
@@ -366,7 +366,7 @@ fun HomeScreen(
                 onPlay = {
                     // Play within the row's context (find which list it belongs to)
                     val list = continueWalkingListFor(v, continueWatching, allVideos, playlists)
-                    onPlayVideo(null, v.id, list.map { it.id }, list.map { it.title })
+                    onPlayVideo(null, v.id, list.map { it.id }, list.map { it.title }, list.map { it.hasSubtitles })
                 },
                 onDismiss = { contextMenuVideo = null },
             )

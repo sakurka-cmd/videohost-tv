@@ -134,12 +134,13 @@ fun NavGraph(repo: VideoHostRepository, serverUrl: String? = null, username: Str
         composable(Routes.Home) {
             HomeScreen(
                 repo = repo,
-                onPlayVideo = { playlistId, videoId, allIds, allTitles ->
+                onPlayVideo = { playlistId, videoId, allIds, allTitles, allHasSubtitles ->
                     val target = PlaybackTarget(
                         playlistId = playlistId,
                         videoId = videoId,
                         allVideoIds = allIds,
                         allVideoTitles = allTitles,
+                        allVideoHasSubtitles = allHasSubtitles,
                     )
                     val json = Json.encodeToString(PlaybackTarget.serializer(), target)
                     val encoded = URLEncoder.encode(json, "UTF-8")

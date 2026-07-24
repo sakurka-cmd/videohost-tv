@@ -8,4 +8,8 @@ data class PlaybackTarget(
     val videoId: String,
     val allVideoIds: List<String>,  // ordered list of video IDs for next/prev navigation
     val allVideoTitles: List<String> = emptyList(),  // titles aligned with allVideoIds (for display in player)
+    // Per-video subtitle availability flags aligned with allVideoIds.
+    // True at index i means allVideoIds[i] has a VTT subtitle file on the server
+    // and the player should expose the Subtitles toggle.
+    val allVideoHasSubtitles: List<Boolean> = emptyList(),
 )

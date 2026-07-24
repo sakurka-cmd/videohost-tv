@@ -13,6 +13,11 @@ data class VideoItem(
     val createdAt: String = "",
     val thumbnail: String? = null,
     val publishedAt: String? = null,
+    // True if the bot uploaded a VTT subtitle for this video.
+    // The APK uses this to decide whether to show the Subtitles toggle.
+    val hasSubtitles: Boolean = false,
+    // ISO 639-1 language code for the subtitle track (e.g. "ru", "en").
+    val subtitleLanguage: String? = null,
 )
 
 @Serializable

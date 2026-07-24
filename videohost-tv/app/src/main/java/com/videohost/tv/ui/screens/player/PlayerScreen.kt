@@ -41,8 +41,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
@@ -66,6 +68,10 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var currentTitle by remember { mutableStateOf(
         target.allVideoTitles.getOrNull(target.allVideoIds.indexOf(target.videoId).coerceAtLeast(0)) ?: ""
     ) }
+    // Track which videos in this playlist have subtitles (loaded once on screen entry).
+    // Map<videoId, hasSubtitles> — drives the Subtitles toggle visibility.
+    val subtitlesAvailableMap by remember { mutableStateOf(target.allVideoHasSubtitles) }
+    var subtitlesEnabled by remember { mutableStateOf(false) }
     var speedIdx by remember { mutableStateOf(1) }
     var speedOverlay by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -144,6 +150,21 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     LaunchedEffect(currentPlayer) { while (true) { delay(500); currentPlayer?.let { positionMs = it.currentPosition; durationMs = it.duration.takeIf { d -> d > 0 } ?: 0L; isPlaying = it.isPlaying } } }
     LaunchedEffect(speedIdx, currentPlayer) { currentPlayer?.let { it.playbackParameters = it.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx]) } }
 
+    // When the user toggles subtitles on/off, update the current player's track
+    // selector in-place (no need to rebuild the player). ExoPlayer picks up the
+    // new parameters and enables/disables the text renderer immediately.
+    LaunchedEffect(subtitlesEnabled, currentPlayer) {
+        currentPlayer?.let { player ->
+            // DefaultTrackSelector is the only track selector we ever set, so this cast is safe.
+            (player.trackSelector as? DefaultTrackSelector)?.let { ts ->
+                ts.parameters = ts.buildUponParameters()
+                    .setPreferredTextLanguage("ru")
+                    .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+                    .build()
+            }
+        }
+    }
+
     // ── Continuous seek helpers ─────────────────────────────────────────
     fun cancelSeekHold() {
         seekHoldJob?.cancel(); seekHoldJob = null
@@ -217,23 +238,59 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             setDefaultRequestProperties(mapOf("Cookie" to "vh_session=$sessionCookie", "User-Agent" to "UTube/1.5"))
         }
         val dsFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpFactory)
-        // Pass session as query param too — fallback in case cookie header is lost
-        // (happens after fresh install when DataStore timing is unreliable)
         val streamUrl = if (sessionCookie.isNotEmpty()) {
             "$baseUrl/api/videos/$videoId/stream?session=$sessionCookie"
         } else {
             "$baseUrl/api/videos/$videoId/stream"
         }
-        val mediaItem = MediaItem.Builder().setUri(streamUrl).setMimeType("video/mp4").build()
+
+        // Check if this video has a VTT subtitle available on the server.
+        // If so, attach it as a side-loaded subtitle track via SubtitleConfiguration.
+        // ExoPlayer fetches the VTT from the subtitle URL on demand and renders
+        // it through its built-in SubtitleView (PlayerView renders subtitles on
+        // top of the video automatically — no custom UI needed).
+        val videoIdx = target.allVideoIds.indexOf(videoId)
+        val hasSubs = videoIdx >= 0 && videoIdx < subtitlesAvailableMap.size && subtitlesAvailableMap[videoIdx]
+        val subtitleUrl = if (hasSubs && sessionCookie.isNotEmpty()) {
+            "$baseUrl/api/videos/$videoId/subtitles?session=$sessionCookie"
+        } else if (hasSubs) {
+            "$baseUrl/api/videos/$videoId/subtitles"
+        } else null
+
+        val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl).setMimeType("video/mp4")
+        if (subtitleUrl != null) {
+            mediaItemBuilder.setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitleUrl))
+                        .setMimeType(MimeTypes.TEXT_VTT)
+                        .setLanguage("ru")
+                        .setLabel("Russian")
+                        .build()
+                )
+            )
+        }
+        val mediaItem = mediaItemBuilder.build()
+
+        // DefaultTrackSelector: text track disabled by default, user toggles via Subtitles button.
+        // When subtitlesEnabled flips to true, we update track selector parameters in-place
+        // via the LaunchedEffect below (no need to rebuild the whole player).
+        val trackSelector = DefaultTrackSelector(context).apply {
+            parameters = buildUponParameters()
+                .setPreferredTextLanguage("ru")
+                .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+                .build()
+        }
         val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory).createMediaSource(mediaItem)
-        val player = ExoPlayer.Builder(context).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory)).build()
+        val player = ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory))
+            .build()
         player.setMediaSource(mediaSource); player.prepare(); player.playWhenReady = true
         player.playbackParameters = player.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx])
         player.addListener(object : Player.Listener {
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) { android.util.Log.e("UTube", "Player error: $videoId", e) }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) { scope.launch {
-                    // Auto-mark as 100% watched when video ends
                     try { repo.getApi().putProgress(videoId, WatchProgressUpdate(
                         (currentPlayer?.duration?.takeIf { it > 0 } ?: 0L) / 1000f,
                         currentPlayer?.duration?.takeIf { it > 0 }?.let { it / 1000f })
@@ -305,6 +362,14 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                 Key.Menu -> { cancelSeekHold(); speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true; true }
                 Key.ChannelUp -> { toggleMark(MarkField.WATCHED); true }
                 Key.ChannelDown -> { toggleMark(MarkField.FAVORITE); true }
+                // Subtitles toggle: only enabled if the current video has a VTT track.
+                // Maps to Captions key on most TV remotes; falls back to "T" key on keyboards.
+                Key.Captions, Key.T -> {
+                    val vidx = currentIndex
+                    val has = vidx >= 0 && vidx < subtitlesAvailableMap.size && subtitlesAvailableMap[vidx]
+                    if (has) { subtitlesEnabled = !subtitlesEnabled; speedOverlay = false }
+                    true
+                }
                 Key.Back -> { cancelSeekHold(); scope.launch { try { val api = repo.getApi(); val pos = currentPlayer?.currentPosition?.div(1000f) ?: 0f; val dur = currentPlayer?.duration?.takeIf { it > 0 }?.div(1000f); api.putProgress(currentVideoId, WatchProgressUpdate(pos, dur)) } catch (_: Exception) {}; currentPlayer?.release(); onClose() }; true }
                 else -> false
             }
@@ -332,6 +397,16 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                     Text(text = "${fmt(positionMs)}", color = Color.White, fontSize = 12.sp)
                     Text(text = if (isPlaying) "\u23F8" else "\u25B6", color = Color.White, fontSize = 20.sp, modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { currentPlayer?.let { it.playWhenReady = !it.playWhenReady } })
                     Text(text = "${PLAYBACK_SPEEDS[speedIdx]}x", color = if (speedIdx > 1) Color(0xFFEF4444) else Color.White, fontSize = 12.sp, modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { speedIdx = (speedIdx + 1) % PLAYBACK_SPEEDS.size; scope.launch { repo.setPlaybackSpeed(target.playlistId, PLAYBACK_SPEEDS[speedIdx]) }; speedOverlay = true })
+                    // Subtitles toggle: only shown if this video has a VTT track.
+                    val hasSubs = currentIndex >= 0 && currentIndex < subtitlesAvailableMap.size && subtitlesAvailableMap[currentIndex]
+                    if (hasSubs) {
+                        Text(
+                            text = if (subtitlesEnabled) "CC" else "CC",
+                            color = if (subtitlesEnabled) Color(0xFFEF4444) else Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { subtitlesEnabled = !subtitlesEnabled },
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = if (watched) "✓ Просм." else "✓",
