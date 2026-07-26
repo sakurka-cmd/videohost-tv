@@ -179,10 +179,38 @@ fun HomeScreen(
         }
     }
 
+    // Wrap focus navigation in try/catch: Compose Foundation <1.7 has a bug where
+    // moveFocus triggers beyond-bounds layout search that crashes on detached parents
+    // ("LayoutCoordinate operations are only valid when isAttached is true").
+    // We intercept DPAD_UP/DPAD_DOWN at the root Box and call moveFocus ourselves.
+    // If it throws, we swallow the exception — the user just doesn't move focus that
+    // one time, but the app doesn't crash.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F10)),
+            .background(Color(0xFF0F0F10))
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && (e.key == Key.DirectionDown || e.key == Key.DirectionUp)) {
+                    val direction = if (e.key == Key.DirectionDown)
+                        androidx.compose.ui.focus.FocusDirection.Down
+                    else
+                        androidx.compose.ui.focus.FocusDirection.Up
+                    try {
+                        focusManager.moveFocus(direction)
+                        true  // consumed — skip Compose's default focus search
+                    } catch (_: IllegalStateException) {
+                        // Known Compose <1.7 bug — beyond-bounds focus search on detached node.
+                        // Swallow: the user just doesn't move focus this one time.
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
     ) {
         when {
             loading -> {
