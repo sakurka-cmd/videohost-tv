@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -248,6 +249,14 @@ fun HomeScreen(
                     }
 
                     LazyColumn(
+                        // focusGroup() constrains Compose's 2D focus search to within
+                        // this LazyColumn. Without it, when the user scrolls past the
+                        // visible items (e.g. pressing Down 10+ times), Compose tries
+                        // to find the next focusable element via beyond-bounds layout —
+                        // which crashes on detached parents with
+                        // "LayoutCoordinate operations are only valid when isAttached is true"
+                        // (a known Compose Foundation <1.7 bug).
+                        modifier = Modifier.focusGroup(),
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                         contentPadding = PaddingValues(bottom = 32.dp),
                     ) {
@@ -446,6 +455,8 @@ private fun VideoRow(
             }
         }
         LazyRow(
+            // focusGroup() — same crash workaround as the outer LazyColumn.
+            modifier = Modifier.focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
         ) {
