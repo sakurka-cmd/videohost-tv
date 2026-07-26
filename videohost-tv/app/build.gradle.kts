@@ -4,6 +4,9 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    // Compose Compiler plugin (Kotlin 2.0+ style) — replaces
+    // composeOptions.kotlinCompilerExtensionVersion from Kotlin 1.9 era.
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -14,8 +17,8 @@ android {
         applicationId = "com.videohost.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 29
-        versionName = "2.4.2"
+        versionCode = 30
+        versionName = "2.5.0"
     }
 
     // Unified signing config — same keystore for BOTH debug and release builds.
@@ -69,9 +72,10 @@ android {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
+    // NOTE: For Kotlin 2.0+, the Compose compiler is configured via the
+    // org.jetbrains.kotlin.plugin.compose Gradle plugin (declared above),
+    // NOT via composeOptions.kotlinCompilerExtensionVersion. The latter is
+    // removed entirely when using the new plugin.
 
     packaging {
         resources {
@@ -81,8 +85,11 @@ android {
 }
 
 dependencies {
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    // Compose BOM — 2024.09.03 ships Compose Foundation 1.7.x which fixes
+    // the 'LayoutCoordinate operations are only valid when isAttached is true'
+    // crash that was triggered by D-pad navigation past the visible bounds
+    // of LazyColumn/LazyRow (BeyondBoundsLayout focus search on detached nodes).
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
 
     // Material3 (works on TV too with proper focus handling)
