@@ -10,6 +10,7 @@ data class VideoItem(
     val filename: String = "",
     val mimeType: String = "video/mp4",
     val size: Long = 0L,
+    val duration: Float? = null,
     val createdAt: String = "",
     val thumbnail: String? = null,
     val publishedAt: String? = null,

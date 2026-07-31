@@ -23,6 +23,8 @@ private val Context.dataStore by preferencesDataStore(name = "videohost_prefs")
 private val SERVER_URL_KEY = stringPreferencesKey("server_url")
 private val SESSION_COOKIE_KEY = stringPreferencesKey("session_cookie")
 private val AUTOPLAY_NEXT_KEY = androidx.datastore.preferences.core.booleanPreferencesKey("autoplay_next")
+private val SORT_DESC_KEY = androidx.datastore.preferences.core.booleanPreferencesKey("sort_desc")
+private val HIDE_WATCHED_KEY = androidx.datastore.preferences.core.booleanPreferencesKey("hide_watched")
 private val SPEED_PREFIX = "speed_"
 
 /**
@@ -56,6 +58,21 @@ class VideoHostRepository(private val context: Context) {
     suspend fun getAutoplayNext(): Boolean = autoplayNextFlow.first()
     suspend fun setAutoplayNext(value: Boolean) {
         context.dataStore.edit { it[AUTOPLAY_NEXT_KEY] = value }
+    }
+
+    // ---- Home screen UI preferences (persisted across app restarts) ----
+    // Sort direction for playlist videos: true = newest first (desc), false = oldest first (asc).
+    val sortDescFlow: Flow<Boolean> = context.dataStore.data.map { it[SORT_DESC_KEY] ?: false }
+    suspend fun getSortDesc(): Boolean = sortDescFlow.first()
+    suspend fun setSortDesc(value: Boolean) {
+        context.dataStore.edit { it[SORT_DESC_KEY] = value }
+    }
+
+    // Hide videos already marked as "watched" by anyone on the home screen.
+    val hideWatchedFlow: Flow<Boolean> = context.dataStore.data.map { it[HIDE_WATCHED_KEY] ?: false }
+    suspend fun getHideWatched(): Boolean = hideWatchedFlow.first()
+    suspend fun setHideWatched(value: Boolean) {
+        context.dataStore.edit { it[HIDE_WATCHED_KEY] = value }
     }
     suspend fun getPlaybackSpeed(playlistId: String?): Float {
         if (playlistId.isNullOrEmpty()) return 1.0f

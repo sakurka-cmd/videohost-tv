@@ -1,6 +1,9 @@
 package com.videohost.tv.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,9 +74,18 @@ fun HomeScreen(
     var playlistGroups by remember { mutableStateOf<List<PlaylistGroup>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Sort direction and hide-watched are persisted to DataStore so the user's
+    // choice survives app restarts (closes cms756q74 + cms7577du).
     var sortDesc by remember { mutableStateOf(false) }
+    var hideWatched by remember { mutableStateOf(false) }
     var baseUrl by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+
+    // Restore persisted UI preferences on first composition.
+    LaunchedEffect(Unit) {
+        sortDesc = repo.getSortDesc()
+        hideWatched = repo.getHideWatched()
+    }
 
     // Long-press context menu state
     var contextMenuVideo by remember { mutableStateOf<VideoItem?>(null) }
@@ -236,7 +248,10 @@ fun HomeScreen(
                             Text("Настройки")
                         }
                         Button(
-                            onClick = { sortDesc = !sortDesc },
+                            onClick = {
+                                sortDesc = !sortDesc
+                                scope.launch { repo.setSortDesc(sortDesc) }
+                            },
                             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 100.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF1F1F23),
@@ -244,6 +259,19 @@ fun HomeScreen(
                             ),
                         ) {
                             Text(if (sortDesc) "↓ Новые" else "↑ Старые", fontSize = 13.sp)
+                        }
+                        Button(
+                            onClick = {
+                                hideWatched = !hideWatched
+                                scope.launch { repo.setHideWatched(hideWatched) }
+                            },
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 210.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (hideWatched) Color(0xFFEF4444) else Color(0xFF1F1F23),
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Text(if (hideWatched) "👁 Скрыть" else "👁 Все", fontSize = 13.sp)
                         }
                     }
 
@@ -259,6 +287,9 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                         contentPadding = PaddingValues(bottom = 32.dp),
                     ) {
+                        // hideWatched filter — when on, drop any video that ANY user has marked as watched.
+                        // "Продолжить просмотр" (continue watching) row is intentionally NOT filtered,
+                        // because the user explicitly wants to resume those.
                         if (continueWatching.isNotEmpty()) {
                             item {
                                 VideoRow(
@@ -273,15 +304,20 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        if (allVideos.isNotEmpty()) {
+                        val recentlyAdded = if (hideWatched) {
+                            allVideos.take(20).filter { marksMap[it.id]?.watchedByAny != true }
+                        } else {
+                            allVideos.take(20)
+                        }
+                        if (recentlyAdded.isNotEmpty()) {
                             item {
                                 VideoRow(
                                     title = "Недавно добавленные",
-                                    videos = allVideos.take(20),
+                                    videos = recentlyAdded,
                                     baseUrl = baseUrl,
                                     marksMap = marksMap,
                                     onItemClick = { v ->
-                                        onPlayVideo(null, v.id, allVideos.map { it.id }, allVideos.map { it.title }, allVideos.map { it.hasSubtitles })
+                                        onPlayVideo(null, v.id, recentlyAdded.map { it.id }, recentlyAdded.map { it.title }, recentlyAdded.map { it.hasSubtitles })
                                     },
                                     onItemLongPress = { v -> contextMenuVideo = v },
                                 )
@@ -294,6 +330,8 @@ fun HomeScreen(
                                 pl.items.sortedByDescending { it.order }.map { it.video }
                             } else {
                                 pl.items.sortedBy { it.order }.map { it.video }
+                            }.let { vids ->
+                                if (hideWatched) vids.filter { marksMap[it.id]?.watchedByAny != true } else vids
                             }
                             if (plVideos.isNotEmpty()) {
                                 item {
@@ -331,6 +369,8 @@ fun HomeScreen(
                                     pl.items.sortedByDescending { it.order }.map { it.video }
                                 } else {
                                     pl.items.sortedBy { it.order }.map { it.video }
+                                }.let { vids ->
+                                    if (hideWatched) vids.filter { marksMap[it.id]?.watchedByAny != true } else vids
                                 }
                                 if (plVideos.isNotEmpty()) {
                                     item {
@@ -484,9 +524,21 @@ private fun VideoCard(
     watched: Boolean = false,
     favorite: Boolean = false,
 ) {
+    // Focus-aware interaction source — lets us draw a prominent border when the
+    // D-pad lands on this card (closes cms754xak).
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val baseModifier = if (isFocused) {
+        modifier
+            .border(width = 3.dp, color = Color(0xFFEF4444), shape = RoundedCornerShape(8.dp))
+    } else {
+        modifier
+    }
+
     Card(
         onClick = onClick,
-        modifier = modifier.onKeyEvent { e ->
+        modifier = baseModifier.onKeyEvent { e ->
             // TV remote: Menu key opens context menu.
             // D-pad events (including right) are NOT intercepted — they go to
             // standard Compose focus traversal (LazyRow scrolls horizontally).
@@ -498,9 +550,14 @@ private fun VideoCard(
                 false
             }
         },
+        interactionSource = interactionSource,
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color(0xFF1F1F23),
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isFocused) 12.dp else 2.dp,
+            focusedElevation = 12.dp,
         ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -552,17 +609,37 @@ private fun VideoCard(
                 }
             }
 
+            // Duration + size badge (top-left). Only shown if at least one is non-zero,
+            // because the bot only fills these for freshly uploaded videos (closes cms755mb8).
+            val metaText = formatVideoMeta(video.duration, video.size)
+            if (metaText.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .background(Color(0xCC000000), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        metaText,
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .background(Color(0xCC000000))
-                    .padding(8.dp),
+                    .padding(6.dp),
             ) {
                 Text(
                     video.title,
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 10.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -570,12 +647,32 @@ private fun VideoCard(
                     Text(
                         text = formatPubDate(dateStr),
                         color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                     )
                 }
             }
         }
     }
+}
+
+/** Returns "MM:SS" or "H:MM:SS" for the duration, plus "NNN MB" if size > 0.
+ *  Empty string when neither is available — caller decides whether to draw the badge. */
+private fun formatVideoMeta(duration: Float?, size: Long): String {
+    val parts = mutableListOf<String>()
+    if (duration != null && duration > 0f) {
+        val totalSec = duration.toLong()
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        parts += if (h > 0) String.format("%d:%02d:%02d", h, m, s)
+                 else String.format("%02d:%02d", m, s)
+    }
+    if (size > 0) {
+        val mb = size / 1_048_576L   // MiB
+        if (mb > 0) parts += "${mb} MB"
+        else parts += "${size / 1024L} KB"
+    }
+    return parts.joinToString(" · ")
 }
 
 private fun formatPubDate(iso: String): String {
