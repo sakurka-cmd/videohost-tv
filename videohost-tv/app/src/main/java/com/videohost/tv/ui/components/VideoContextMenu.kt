@@ -57,6 +57,8 @@ fun VideoContextMenu(
     onToggleFavorite: () -> Unit,
     onPlay: () -> Unit,
     onDismiss: () -> Unit,
+    canDeleteVideos: Boolean = false,
+    onDeleteVideo: () -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -76,6 +78,7 @@ fun VideoContextMenu(
                 video = video,
                 watched = watched,
                 favorite = favorite,
+                canDeleteVideos = canDeleteVideos,
                 onToggleWatched = {
                     onToggleWatched()
                 },
@@ -85,6 +88,10 @@ fun VideoContextMenu(
                 onPlay = {
                     onPlay()
                     onDismiss()
+                },
+                onDeleteVideo = {
+                    onDismiss()
+                    onDeleteVideo()
                 },
                 onDismiss = onDismiss,
             )
@@ -97,17 +104,28 @@ private fun MenuContent(
     video: VideoItem,
     watched: Boolean,
     favorite: Boolean,
+    canDeleteVideos: Boolean,
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
     onPlay: () -> Unit,
+    onDeleteVideo: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
     var selectedIndex by remember { mutableStateOf(0) }
-    val items = listOf("watched", "favorite", "play", "close")
+    // Build menu items dynamically — 'delete' is only present when the user
+    // has delete permission. selectedIndex is clamped to the valid range.
+    val baseItems = mutableListOf("watched", "favorite", "play")
+    if (canDeleteVideos) baseItems.add("delete")
+    baseItems.add("close")
+    val items = baseItems.toList()
 
     LaunchedEffect(Unit) {
         try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+    LaunchedEffect(items.size) {
+        // Clamp selectedIndex if menu shrinks (e.g. after permission change)
+        if (selectedIndex >= items.size) selectedIndex = 0
     }
 
     Column(
@@ -134,6 +152,7 @@ private fun MenuContent(
                             "watched" -> onToggleWatched()
                             "favorite" -> onToggleFavorite()
                             "play" -> onPlay()
+                            "delete" -> onDeleteVideo()
                             "close" -> onDismiss()
                         }
                         true
@@ -165,25 +184,33 @@ private fun MenuContent(
         }
         Spacer(Modifier.height(8.dp))
 
-        // Menu items
+        // Menu items — index must match the items list above
+        var idx = 0
         MenuRow(
             label = if (watched) "✓ Просмотрено (снять)" else "✓ Отметить просмотрено",
-            selected = selectedIndex == 0,
+            selected = selectedIndex == idx,
             accent = if (watched) Color(0xFF10B981) else Color.White,
-        )
+        ); idx++
         MenuRow(
             label = if (favorite) "★ Избранное (снять)" else "★ Добавить в избранное",
-            selected = selectedIndex == 1,
+            selected = selectedIndex == idx,
             accent = if (favorite) Color(0xFFF59E0B) else Color.White,
-        )
+        ); idx++
         MenuRow(
             label = "▶ Смотреть",
-            selected = selectedIndex == 2,
+            selected = selectedIndex == idx,
             accent = Color(0xFFEF4444),
-        )
+        ); idx++
+        if (canDeleteVideos) {
+            MenuRow(
+                label = "🗑 Удалить видео",
+                selected = selectedIndex == idx,
+                accent = Color(0xFFEF4444),
+            ); idx++
+        }
         MenuRow(
             label = "✕ Закрыть",
-            selected = selectedIndex == 3,
+            selected = selectedIndex == idx,
             accent = Color.White.copy(alpha = 0.7f),
         )
     }

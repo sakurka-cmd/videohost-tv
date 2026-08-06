@@ -78,6 +78,9 @@ fun HomeScreen(
     // choice survives app restarts (closes cms756q74 + cms7577du).
     var sortDesc by remember { mutableStateOf(false) }
     var hideWatched by remember { mutableStateOf(false) }
+    // Whether the current user can delete videos (ADMIN or canDeleteVideos=true).
+    // Drives visibility of the '🗑 Удалить видео' item in the long-press menu.
+    var canDeleteVideos by remember { mutableStateOf(false) }
     var baseUrl by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
@@ -111,6 +114,10 @@ fun HomeScreen(
                 loading = false
                 return@LaunchedEffect
             }
+            // ADMIN role always has delete permission; USER accounts need
+            // canDeleteVideos=true (toggled by admin in the user panel).
+            canDeleteVideos = me.canDeleteVideos
+            AppLogger.i("HomeScreen", "user=${me.username} role=${me.role} canDeleteVideos=${me.canDeleteVideos}")
             val pls = api.listPlaylists()
             val vids = api.listVideos()
             playlists = pls
@@ -415,6 +422,36 @@ fun HomeScreen(
                     // Play within the row's context (find which list it belongs to)
                     val list = continueWalkingListFor(v, continueWatching, allVideos, playlists)
                     onPlayVideo(null, v.id, list.map { it.id }, list.map { it.title }, list.map { it.hasSubtitles })
+                },
+                canDeleteVideos = canDeleteVideos,
+                onDeleteVideo = {
+                    val videoId = v.id
+                    val videoTitle = v.title
+                    scope.launch {
+                        try {
+                            val api = repo.getApi()
+                            api.deleteVideo(videoId)
+                            AppLogger.i("HomeScreen", "Deleted video $videoId ($videoTitle)")
+                            // Remove from local state immediately so the UI
+                            // updates without waiting for the 30s auto-refresh.
+                            allVideos = allVideos.filter { it.id != videoId }
+                            continueWatching = continueWatching.filter { it.id != videoId }
+                            playlists = playlists.map { pl ->
+                                pl.copy(items = pl.items.filter { it.video.id != videoId })
+                            }.filter { it.items.isNotEmpty() }
+                            marksMap = marksMap.filterKeys { it != videoId }
+                        } catch (e: Exception) {
+                            AppLogger.e("HomeScreen", "Delete video $videoId failed", e)
+                            // Best-effort: re-fetch full state on failure so any
+                            // partial UI inconsistency is corrected.
+                            try {
+                                val api = repo.getApi()
+                                allVideos = api.listVideos()
+                                playlists = api.listPlaylists()
+                                reloadMarks()
+                            } catch (_: Exception) {}
+                        }
+                    }
                 },
                 onDismiss = { contextMenuVideo = null },
             )

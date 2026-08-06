@@ -78,6 +78,9 @@ data class Session(
     val username: String,
     val role: String = "USER",
     val isApproved: Boolean = true,
+    // True if this user is allowed to delete videos from the APK context menu.
+    // Backend returns: role == 'ADMIN' (always true) OR user.canDeleteVideos == true.
+    val canDeleteVideos: Boolean = false,
 )
 
 @Serializable

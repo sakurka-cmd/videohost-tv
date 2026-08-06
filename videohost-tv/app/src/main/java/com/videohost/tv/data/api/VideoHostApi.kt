@@ -64,6 +64,15 @@ interface VideoHostApi {
     /** Marks every video in the given playlist as "watched" for the current user. */
     @POST("api/playlists/{id}/mark-all-watched")
     suspend fun markAllWatched(@Path("id") id: String): MarkAllWatchedResponse
+
+    /**
+     * Delete a video. Returns 200 on success, 401 if not logged in, 403 if the
+     * user lacks delete permission (only ADMIN or users with canDeleteVideos=true).
+     * Body is a small JSON { success: true } — we return Unit and rely on the
+     * HTTP code (Retrofit throws HttpException on non-2xx).
+     */
+    @DELETE("api/videos/{id}")
+    suspend fun deleteVideo(@Path("id") id: String): DeleteVideoResponse
 }
 
 @kotlinx.serialization.Serializable
@@ -77,3 +86,6 @@ data class MarkUpdateRequest(val watched: Boolean? = null, val favorite: Boolean
 
 @kotlinx.serialization.Serializable
 data class MarkAllWatchedResponse(val success: Boolean = false, val marked: Int = 0)
+
+@kotlinx.serialization.Serializable
+data class DeleteVideoResponse(val success: Boolean = false)
