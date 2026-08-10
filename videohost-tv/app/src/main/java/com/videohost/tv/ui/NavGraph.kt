@@ -162,9 +162,27 @@ fun NavGraph(repo: VideoHostRepository, serverUrl: String? = null, username: Str
             route = "${Routes.Player}/{target}",
             arguments = listOf(navArgument("target") { type = NavType.StringType }),
         ) { backStackEntry ->
-            val encoded = backStackEntry.arguments?.getString("target") ?: ""
-            val json = java.net.URLDecoder.decode(encoded, "UTF-8")
-            val target = Json.decodeFromString(PlaybackTarget.serializer(), json)
+            // Navigation's NavType.StringType already URL-decodes the argument
+            // value once. Calling URLDecoder.decode() again here causes a
+            // CRASH when a video title contains '%' (e.g. "99% der Menschen
+            // kochen Lachs falsch!") — the second decode tries to interpret
+            // '%' as a hex escape and throws IllegalArgumentException on
+            // patterns like "%+d", "%2 ", etc.
+            //
+            // Fix: use the raw argument value directly. URLEncoder.encode()
+            // on the sender side made the JSON safe to pass through the
+            // nav route, and navigation already undid that encoding.
+            val json = backStackEntry.arguments?.getString("target") ?: ""
+            // Defensive: if decoding fails for any reason, pop back instead
+            // of crashing the whole app. The previous behaviour was a hard
+            // crash that kicked the user to the home screen.
+            val target = try {
+                Json.decodeFromString(PlaybackTarget.serializer(), json)
+            } catch (e: Exception) {
+                Log.e("NavGraph", "Failed to decode PlaybackTarget from nav arg", e)
+                nav.popBackStack()
+                return@composable
+            }
             PlayerScreen(
                 repo = repo,
                 target = target,
