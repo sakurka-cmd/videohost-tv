@@ -48,3 +48,4 @@ Thumbs.db
 
 # Sensitive bundled sources
 download/*.tar.gz
+download/*.apk
