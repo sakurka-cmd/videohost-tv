@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +47,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
+import com.videohost.tv.BuildConfig
 import com.videohost.tv.data.api.MarkUpdateRequest
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.api.WatchProgressUpdate
@@ -79,6 +81,8 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
+    var isBuffering by remember { mutableStateOf(false) }
+    var playerError by remember { mutableStateOf<String?>(null) }
     var watched by remember { mutableStateOf(false) }   // watchedByAny (any user)
     var favorite by remember { mutableStateOf(false) }  // favoriteByAny (any user)
     var myWatched by remember { mutableStateOf(false) }
@@ -231,18 +235,20 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     }
     // ────────────────────────────────────────────────────────────────────
 
-    fun buildPlayer(videoId: String): ExoPlayer {
-        val baseUrl = kotlinx.coroutines.runBlocking { repo.getServerUrl() }
-        val sessionCookie = kotlinx.coroutines.runBlocking { repo.getSessionCookie() }
+    suspend fun buildPlayer(videoId: String): ExoPlayer {
+        val baseUrl = repo.getServerUrl()
+        val sessionCookie = repo.getSessionCookie()
+        val requestHeaders = mutableMapOf(
+            "User-Agent" to "UTube/${BuildConfig.VERSION_NAME}",
+        )
+        if (sessionCookie.isNotEmpty()) {
+            requestHeaders["Cookie"] = "vh_session=$sessionCookie"
+        }
         val httpFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okhttp3.OkHttpClient.Builder().build()).apply {
-            setDefaultRequestProperties(mapOf("Cookie" to "vh_session=$sessionCookie", "User-Agent" to "UTube/1.5"))
+            setDefaultRequestProperties(requestHeaders)
         }
         val dsFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpFactory)
-        val streamUrl = if (sessionCookie.isNotEmpty()) {
-            "$baseUrl/api/videos/$videoId/stream?session=$sessionCookie"
-        } else {
-            "$baseUrl/api/videos/$videoId/stream"
-        }
+        val streamUrl = "$baseUrl/api/videos/$videoId/stream"
 
         // Check if this video has a VTT subtitle available on the server.
         // If so, attach it as a side-loaded subtitle track via SubtitleConfiguration.
@@ -251,9 +257,7 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
         // top of the video automatically — no custom UI needed).
         val videoIdx = target.allVideoIds.indexOf(videoId)
         val hasSubs = videoIdx >= 0 && videoIdx < subtitlesAvailableMap.size && subtitlesAvailableMap[videoIdx]
-        val subtitleUrl = if (hasSubs && sessionCookie.isNotEmpty()) {
-            "$baseUrl/api/videos/$videoId/subtitles?session=$sessionCookie"
-        } else if (hasSubs) {
+        val subtitleUrl = if (hasSubs) {
             "$baseUrl/api/videos/$videoId/subtitles"
         } else null
 
@@ -286,10 +290,16 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsFactory))
             .build()
         player.setMediaSource(mediaSource); player.prepare(); player.playWhenReady = true
+        isBuffering = true
         player.playbackParameters = player.playbackParameters.withSpeed(PLAYBACK_SPEEDS[speedIdx])
         player.addListener(object : Player.Listener {
-            override fun onPlayerError(e: androidx.media3.common.PlaybackException) { android.util.Log.e("UTube", "Player error: $videoId", e) }
+            override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("UTube", "Player error: $videoId", e)
+                isBuffering = false
+                playerError = e.message ?: "Ошибка воспроизведения"
+            }
             override fun onPlaybackStateChanged(state: Int) {
+                isBuffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_ENDED) { scope.launch {
                     try { repo.getApi().putProgress(videoId, WatchProgressUpdate(
                         (currentPlayer?.duration?.takeIf { it > 0 } ?: 0L) / 1000f,
@@ -307,7 +317,8 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
     LaunchedEffect(Unit) { currentPlayer = buildPlayer(currentVideoId) }
     fun switchTo(idx: Int) {
         cancelSeekHold()  // reset seek state on video switch
-        if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release(); currentPlayer = buildPlayer(target.allVideoIds[idx])
+        if (idx < 0 || idx >= target.allVideoIds.size) return; currentIndex = idx; currentVideoId = target.allVideoIds[idx]; currentTitle = target.allVideoTitles.getOrNull(idx) ?: ""; currentPlayer?.release()
+        scope.launch { currentPlayer = buildPlayer(target.allVideoIds[idx]) }
     }
     fun fmt(ms: Long): String { if (ms <= 0) return "0:00"; val s = ms / 1000; return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
 
@@ -421,10 +432,39 @@ fun PlayerScreen(repo: VideoHostRepository, target: PlaybackTarget, onClose: () 
                             modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { toggleMark(MarkField.FAVORITE) },
                         )
                     }
-                    Text(text = "${fmt(durationMs)}", color = Color.White, fontSize = 12.sp)
+                    Text(text = "${fmt(positionMs)} / ${fmt(durationMs)}", color = Color.White, fontSize = 12.sp)
                 }
                 if (durationMs > 0) { LinearProgressIndicator(progress = { (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(3.dp).padding(top = 4.dp), color = Color(0xFFEF4444), trackColor = Color.White.copy(alpha = 0.3f)) }
             }
+        }
+        if (playerError != null) {
+            Box(
+                Modifier.align(Alignment.Center)
+                    .background(Color(0xCC000000), RoundedCornerShape(12.dp))
+                    .padding(24.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = "Ошибка воспроизведения", color = Color.White, fontSize = 18.sp)
+                    Text(text = playerError ?: "", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    Text(
+                        text = "Повторить",
+                        color = Color(0xFFEF4444),
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(top = 12.dp).clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            scope.launch {
+                                playerError = null
+                                currentPlayer?.release()
+                                currentPlayer = buildPlayer(currentVideoId)
+                            }
+                        },
+                    )
+                }
+            }
+        } else if (isBuffering) {
+            CircularProgressIndicator(color = Color(0xFFEF4444), modifier = Modifier.align(Alignment.Center))
         }
         if (speedOverlay) {
             LaunchedEffect(speedOverlay) { delay(2000); speedOverlay = false }

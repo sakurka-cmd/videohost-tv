@@ -17,6 +17,9 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface VideoHostApi {
+    @GET("api/health")
+    suspend fun health(): HealthResponse
+
     @POST("api/auth/login")
     suspend fun login(@Body body: LoginRequest): Session
 
@@ -77,6 +80,9 @@ interface VideoHostApi {
 
 @kotlinx.serialization.Serializable
 data class LoginRequest(val username: String, val password: String)
+
+@kotlinx.serialization.Serializable
+data class HealthResponse(val status: String = "")
 
 @kotlinx.serialization.Serializable
 data class WatchProgressUpdate(val positionSec: Float, val durationSec: Float? = null)

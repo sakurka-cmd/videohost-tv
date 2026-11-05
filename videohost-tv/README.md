@@ -2,6 +2,8 @@
 
 Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/videohost) — viewing only (no upload or playlist-create features). Built with Kotlin + Jetpack Compose + Media3 ExoPlayer.
 
+Current version: **2.7.2** (versionCode 34). Playback is implemented entirely in Compose (`PlayerScreen`) — there is no `PlayerActivity` or XML layout.
+
 ## Features
 
 - **Netflix-style rows on the home screen:**
@@ -18,9 +20,9 @@ Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/vid
   - On video end: clears saved progress (so the next viewing starts from the beginning) and auto-advances to the next video
   - Video title displayed in the controls overlay (updates on next/prev/auto-advance)
 - **Resume position sync** — automatically resumes from the saved position when a video is opened. Position is saved to the server every 5 seconds, so it stays in sync across web, mobile, and TV.
-- **Video marks** — toggle "watched" (`✓ Просм.`) and "favorite" (`★ Избр.`) from the player control bar. Marks are synced to the server (`/api/videos/{id}/marks`) and displayed as badges on thumbnails in the home screen (bulk-loaded via `/api/me/marks`).
+- **Video marks** — toggle "watched" (`✓ Просм.`) and "favorite" (`★ Избр.`) from the player control bar. Marks are synced to the server (`/api/videos/{id}/marks`) and displayed as badges on thumbnails in the home screen (bulk-loaded via `/api/videos/all-marks`).
 - **Mark all watched** — a `✓ Все просмотрено` button on every playlist row marks all videos in that playlist as watched (`POST /api/playlists/{id}/mark-all-watched`).
-- **Playback speed control** — cycle through 0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x via the player control bar. The selected speed is persisted per-playlist in DataStore and restored on next playback.
+- **Playback speed control** — cycle through 0.5x / 1x / 1.25x / 1.5x / 1.75x / 2x via the player control bar. The selected speed is persisted per-playlist in DataStore and restored on next playback.
 - **Login screen** — username/password from VideoHost (cookie `vh_session` persisted in DataStore).
 - **Settings screen** — the VideoHost URL is configured on first launch and can be changed later via the Settings button on the home screen.
 - **Thumbnails** — loaded from `/api/videos/{id}/thumbnail` (the backend serves a local file or generates one on-the-fly via ffmpeg; YouTube URLs are cleared by the backend since YouTube is blocked on the TV).

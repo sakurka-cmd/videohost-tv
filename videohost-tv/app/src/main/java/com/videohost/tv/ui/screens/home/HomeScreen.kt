@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.videohost.tv.R
 import com.videohost.tv.data.api.MarkUpdateRequest
+import com.videohost.tv.data.api.VideoHostApi
 import com.videohost.tv.data.api.VideoHostRepository
 import com.videohost.tv.data.model.AllMarksEntry
 import com.videohost.tv.data.model.PlaylistFull
@@ -57,6 +58,9 @@ import com.videohost.tv.data.model.PlaylistGroup
 import com.videohost.tv.data.model.VideoItem
 import com.videohost.tv.logging.AppLogger
 import com.videohost.tv.ui.components.VideoContextMenu
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -103,6 +107,21 @@ fun HomeScreen(
         }
     }
 
+    suspend fun loadContinueWatching(api: VideoHostApi, vids: List<VideoItem>): List<VideoItem> = coroutineScope {
+        vids.chunked(8).flatMap { chunk ->
+            chunk.map { v ->
+                async {
+                    try {
+                        val p = api.getProgress(v.id)
+                        if (p.positionSec > 5f) v else null
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }.awaitAll()
+        }.filterNotNull()
+    }
+
     LaunchedEffect(Unit) {
         AppLogger.i("HomeScreen", "LaunchedEffect init")
         try {
@@ -130,15 +149,8 @@ fun HomeScreen(
                 AppLogger.w("HomeScreen", "listPlaylistGroups failed: ${e.message}")
                 playlistGroups = emptyList()
             }
-            // Build "Continue watching" — for each video, fetch its progress; keep those with > 5s
-            val cont = mutableListOf<VideoItem>()
-            for (v in vids) {
-                try {
-                    val p = api.getProgress(v.id)
-                    if (p.positionSec > 5f) cont.add(v)
-                } catch (_: Exception) {}
-            }
-            continueWatching = cont
+            // Build "Continue watching" in bounded parallel batches.
+            continueWatching = loadContinueWatching(api, vids)
             reloadMarks()
             loading = false
             AppLogger.i("HomeScreen", "init done, loading=false")
@@ -155,9 +167,14 @@ fun HomeScreen(
             kotlinx.coroutines.delay(30000)
             try {
                 val api = repo.getApi()
-                playlists = api.listPlaylists()
-                allVideos = api.listVideos()
+                val pls = api.listPlaylists()
+                val vids = api.listVideos()
+                playlists = pls
+                allVideos = vids
                 try { playlistGroups = api.listPlaylistGroups() } catch (_: Exception) {}
+                // Refresh "Continue watching" too, so progress changes from
+                // other devices appear without a full screen reload.
+                continueWatching = loadContinueWatching(api, vids)
                 reloadMarks()
             } catch (_: Exception) {}
         }

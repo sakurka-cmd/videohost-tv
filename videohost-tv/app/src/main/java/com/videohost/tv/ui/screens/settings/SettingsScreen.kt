@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -50,10 +51,14 @@ fun SettingsScreen(
     var url by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
+    var autoplayNext by remember { mutableStateOf(true) }
+    var hideWatched by remember { mutableStateOf(false) }
     val urlFocus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
         url = repo.serverUrlFlow.first()
+        autoplayNext = repo.getAutoplayNext()
+        hideWatched = repo.getHideWatched()
         urlFocus.requestFocus()
     }
 
@@ -91,6 +96,35 @@ fun SettingsScreen(
                 ),
             )
 
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.width(500.dp),
+            ) {
+                Text("Автоплей следующего видео", color = Color.White, fontSize = 14.sp)
+                Switch(
+                    checked = autoplayNext,
+                    onCheckedChange = {
+                        autoplayNext = it
+                        scope.launch { repo.setAutoplayNext(it) }
+                    },
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.width(500.dp),
+            ) {
+                Text("Скрывать просмотренные", color = Color.White, fontSize = 14.sp)
+                Switch(
+                    checked = hideWatched,
+                    onCheckedChange = {
+                        hideWatched = it
+                        scope.launch { repo.setHideWatched(it) }
+                    },
+                )
+            }
+
             error?.let {
                 Text(it, color = Color(0xFFEF4444), fontSize = 13.sp)
             }
@@ -127,6 +161,28 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
             Text("Диагностика", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+
+            Button(
+                onClick = {
+                    status = "Проверка соединения..."
+                    scope.launch {
+                        try {
+                            val health = repo.getApi().health()
+                            status = if (health.status == "healthy") "Сервер доступен" else "Статус сервера: ${health.status}"
+                        } catch (e: Exception) {
+                            status = "Нет связи с сервером: ${e.message ?: "ошибка"}"
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1F1F23),
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier.width(500.dp).height(44.dp),
+            ) {
+                Text("Проверить соединение", fontSize = 13.sp)
+            }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

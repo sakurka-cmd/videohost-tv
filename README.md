@@ -1,5 +1,7 @@
 # yt2tg-bot
 
+> **Bot source moved.** Канонический репозиторий бота: https://github.com/sakurka-cmd/yt2tg-bot. Устаревшая копия `bot/` из этого репозитория удалена, чтобы не расходиться с основным кодом. Документация ниже описывает бота и актуальна для отдельного репозитория.
+
 YouTube → VideoHost Telegram Bot
 
 Автоматическая загрузка видео с YouTube-каналов в приватный видеохостинг [VideoHost](https://github.com/vladimir-turin/videohost) с управлением через Telegram.
@@ -278,19 +280,19 @@ MIT
 
 During a security audit, **critical secrets were discovered committed in the public git history** of this repository:
 
-- VPS1 root SSH password (`JnLNWOpMm2GF`) — hardcoded in 47 deploy scripts in `scripts/`
-- Full Telegram bot token (`8865321893:AAGHmO8t_vxQ7toYNGKle5p3Qffr76H4h8A`) — in `scripts/fix_bot.py`, `scripts/deploy_bot_fix.py`, `scripts/vps_verify.py`, `worklog.md`, `download/vps_diagnose_v2.log`
-- VideoHost Bot API token (`2d701eee…`) — in 24 scripts + a leaked SQLite DB `videohost-deployed/videohost_data_restored.db` (table `BotToken`)
-- APK signing keystore password (`videohost123`) — in `videohost-tv/app/build.gradle.kts`, alongside the keystore file itself (`videohost-tv/app/videohost-release.keystore`)
+- VPS1 root SSH password (`***REDACTED***`) — hardcoded in 47 deploy scripts in `scripts/`
+- Full Telegram bot token (`***REDACTED***`) — in `scripts/fix_bot.py`, `scripts/deploy_bot_fix.py`, `scripts/vps_verify.py`, `worklog.md`, `download/vps_diagnose_v2.log`
+- VideoHost Bot API token (`***REDACTED***`) — in 24 scripts + a leaked SQLite DB `videohost-deployed/videohost_data_restored.db` (table `BotToken`)
+- APK signing keystore password (`***REDACTED***`) — in `videohost-tv/app/build.gradle.kts`, alongside the keystore file itself (`videohost-tv/app/videohost-release.keystore`)
 - User password hashes (scrypt, salted) — in `videohost-deployed/*.db` (tables `User` for admin and x4)
-- Admin Telegram ID and name (8114519, @BardanosVV) — in `worklog.md`
+- Admin Telegram ID and name (`***REDACTED***`) — in `worklog.md`
 - 22 deploy log files in `download/` containing IPs, paths, and stack traces
 
 **Remediation performed:**
 
 1. History rewritten via `git filter-repo`:
    - Removed entirely: `videohost-deployed/`, `scripts/`, `worklog.md`, `tool-results/`, all `*.log` in `download/`, `videohost-tv/app/videohost-release.keystore`, `.env`, `download/VideoHostTV-source-v1.0.tar.gz`
-   - String-replaced: `JnLNWOpMm2GF`, TG token, VH token, `ghp_*` tokens, `admin123`, `videohost123` → `***REMOVED***`
+   - String-replaced: VPS1 password, TG token, VH token, `ghp_*` tokens, `admin123`, keystore password → `***REMOVED***`
 2. New commit `594ab22`: `build.gradle.kts` reads keystore password from `keystore.properties` (gitignored) instead of hardcoding it
 3. `.gitignore` expanded to prevent future leaks: `.env`, `*.keystore`, `*.jks`, `*.db`, `*.log`, `scripts/`, `tool-results/`, `worklog.md`, `keystore.properties`
 4. Force-pushed to GitHub (all existing clones/forks became incompatible)
@@ -320,36 +322,28 @@ and place the keystore file at `videohost-tv/app/videohost-release.keystore` (al
 
 ## Repository structure
 
-This repo historically contains two related projects (kept together for simplicity):
+This repo now contains the Android TV application. The Telegram bot lives in a separate repo: https://github.com/sakurka-cmd/yt2tg-bot.
 
 ```
 .
-├── bot/                    # yt2tg-bot — Telegram bot (Python, pyTelegramBotAPI)
-│                          # See README above for full bot documentation
 ├── download/              # Built APKs for distribution
-│   ├── VideoHostTV-debug-v2.0.5.apk
-│   └── README.md          # APK distribution notes
 ├── videohost-tv/           # Android TV application (Kotlin + Compose + Media3)
 │   ├── app/
 │   │   ├── build.gradle.kts       # Signing config reads from keystore.properties
 │   │   └── src/main/
-│   │       ├── java/com/videohost/tv/
-│   │       │   ├── MainActivity.kt        # Compose entry point (Home, Settings, Login)
-│   │       │   ├── PlayerActivity.kt      # Native Activity for video playback (v2.2.0+)
-│   │       │   ├── logging/AppLogger.kt   # File logger + crash handler
-│   │       │   └── ui/                    # Compose screens (Home, Login, Settings, NavGraph)
-│   │       └── res/layout/
-│   │           ├── player_activity.xml    # PlayerView with SurfaceView (native Activity)
-│   │           └── player_view.xml        # PlayerView with TextureView (legacy, unused)
+│   │       └── java/com/videohost/tv/
+│   │           ├── MainActivity.kt        # Compose entry point (Home, Settings, Login)
+│   │           ├── data/                  # API, models, repository
+│   │           ├── logging/AppLogger.kt   # File logger + crash handler
+│   │           └── ui/                    # Compose screens (Home, Player, Login, Settings, NavGraph)
 │   ├── gradle/
 │   ├── build.gradle.kts
 │   ├── settings.gradle.kts
 │   ├── gradlew
 │   └── README.md          # Full Android app documentation
-├── requirements.txt        # Python deps for bot/
-├── yt2tg-bot.service       # systemd unit for the bot
-├── .env.example            # Bot env template (no secrets)
-└── .gitignore              # Strict — blocks .env, *.keystore, *.db, *.log, etc.
+├── requirements.txt        # Legacy: Python deps for the separate bot repo
+├── yt2tg-bot.service       # Legacy: systemd unit for the separate bot repo
+└── .env.example            # Legacy: bot env template (no secrets)
 ```
 
 The `videohost-tv/` subdirectory has its own README with full Android app documentation (features, D-pad controls, build instructions, ADB provisioning).

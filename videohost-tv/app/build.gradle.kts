@@ -17,8 +17,8 @@ android {
         applicationId = "com.videohost.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 33
-        versionName = "2.7.1"
+        versionCode = 34
+        versionName = "2.7.2"
     }
 
     // Unified signing config — same keystore for BOTH debug and release builds.
@@ -70,6 +70,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // NOTE: For Kotlin 2.0+, the Compose compiler is configured via the

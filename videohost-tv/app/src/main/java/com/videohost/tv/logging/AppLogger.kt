@@ -2,6 +2,7 @@ package com.videohost.tv.logging
 
 import android.content.Context
 import android.util.Log
+import com.videohost.tv.BuildConfig
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -103,7 +104,7 @@ object AppLogger {
             sb.append("Generated: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}\n")
             sb.append("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\n")
             sb.append("Android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})\n")
-            sb.append("App version: 2.0.6 (code 14)\n\n")
+            sb.append("App version: ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})\n\n")
 
             // Crash logs first (most important)
             val crashes = logDir.listFiles { f -> f.name.startsWith("crash-") }
@@ -163,7 +164,7 @@ object AppLogger {
                 pw.println("Thread: ${t.name} (id=${t.id})")
                 pw.println("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
                 pw.println("Android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})")
-                pw.println("App version: 2.0.6 (code 14)")
+                pw.println("App version: ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
                 pw.println()
                 e.printStackTrace(pw)
                 pw.close()

@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Init file logger + crash handler FIRST, before anything else can crash
         AppLogger.init(applicationContext)
-        AppLogger.i("MainActivity", "onCreate, app v2.0.6 (code 14)")
+        AppLogger.i("MainActivity", "onCreate, app v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
 
         val repo = VideoHostRepository(applicationContext)
         // Read intent extras for CLI provisioning:
