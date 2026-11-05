@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write   # needed to push APK back to repo
+      contents: write   # needed to create the GitHub Release
 
     steps:
       - name: Checkout
@@ -96,19 +96,6 @@ jobs:
           path: |
             download/*.apk
           retention-days: 30
-
-      - name: Commit APKs to repo
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add download/*.apk
-          if git diff --staged --quiet; then
-            echo "No APK changes to commit"
-          else
-            git commit -m "build: release v${{ steps.version.outputs.version }} (code ${{ steps.version.outputs.code }}) [skip ci]"
-            git push
-            echo "Pushed APKs to repo"
-          fi
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
