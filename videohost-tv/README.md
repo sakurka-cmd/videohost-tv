@@ -2,7 +2,7 @@
 
 Native Android TV application for [VideoHost](https://github.com/sakurka-cmd/videohost) — viewing only (no upload or playlist-create features). Built with Kotlin + Jetpack Compose + Media3 ExoPlayer.
 
-Current version: **2.7.2** (versionCode 34). Playback is implemented entirely in Compose (`PlayerScreen`) — there is no `PlayerActivity` or XML layout.
+Current version: **2.7.3** (versionCode 35). Playback is implemented entirely in Compose (`PlayerScreen`) — there is no `PlayerActivity` or XML layout.
 
 ## Features
 
@@ -155,6 +155,9 @@ app/src/main/java/com/videohost/tv/
 - No search
 
 ## Changelog
+
+### v2.7.3 (2026-11-17)
+- **brand:** UTube logo — new launcher icons, adaptive icon (safe zone) and Android TV banner.
 
 ### v2.0.2 (2026-07-07)
 - **feat(player): continuous seek (YouTube-style)** — long-press D-pad LEFT/RIGHT starts accelerated seek after 400ms hold. Delta ramps 10s → 20s → 30s every 5 ticks (tick = 200ms). Visual indicator overlay (`◀◀ 10s` / `▶▶ 30s`) with pulse animation. Single tap ±10s preserved.
